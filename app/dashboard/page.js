@@ -89,7 +89,7 @@ function FileCard({ label, description, file, onFile, accept, validation }) {
       )}
 
       {hasFile && (
-        <FilePreview file={file} label={label} sheetName={label.includes('Stuffing') ? 'NB ORDER' : label.includes('Inspection') ? 'Apr' : null} />
+        <FilePreview file={file} label={label} sheetName={label.includes('Stuffing') ? 'NB ORDER' : null} />
       )}
     </div>
   );
@@ -179,56 +179,72 @@ export default function Home() {
     }
 
     setStatus('processing');
-    setMessage('Mengunggah dan memproses file...');
+    setMessage('Memproses file di Web Worker...');
     setReport(null);
     setWarnings([]);
 
     try {
-      const formData = new FormData();
-      formData.append('blc', blcFile);
-      formData.append('stuffing', stuffingFile);
-      formData.append('inspection', inspectionFile);
+      // ── Read files into ArrayBuffers for the worker ──
+      setMessage('Membaca file...');
+      const blcArrBuf = blcFile ? await blcFile.arrayBuffer() : null;
+      const stuffingArrBuf = await stuffingFile.arrayBuffer();
+      const inspectionArrBuf = await inspectionFile.arrayBuffer();
 
-      const response = await fetch('/api/process-excel', { method: 'POST', body: formData });
+      // ── Create Web Worker and process off main thread ──
+      setMessage('Memproses Excel di background (UI tetap responsif)...');
+      const { outputBuffer, report: processingReport } = await new Promise((resolve, reject) => {
+        const worker = new Worker(
+          new URL('../../lib/excelWorker.js', import.meta.url),
+          { type: 'module' }
+        );
+        worker.onmessage = (ev) => {
+          worker.terminate();
+          if (ev.data.error) reject(new Error(ev.data.error));
+          else resolve(ev.data);
+        };
+        worker.onerror = (ev) => {
+          worker.terminate();
+          reject(new Error(ev.message || 'Web Worker error'));
+        };
+        worker.postMessage({
+          blcBuffer: blcArrBuf,
+          stuffingBuffer: stuffingArrBuf,
+          inspectionBuffer: inspectionArrBuf,
+          blcName: blcFile?.name || '',
+          stuffingName: stuffingFile?.name || '',
+          inspectionName: inspectionFile?.name || '',
+        });
+      });
 
-      // Check if response is binary (success) or JSON (error)
-      const contentType = response.headers.get('Content-Type') || '';
+      setReport(processingReport);
+      setWarnings(processingReport.warnings || []);
 
-      if (contentType.includes('application/vnd.openxmlformats')) {
-        // ── BINARY RESPONSE (success) ──
-        // Extract report from X-Processing-Report header
-        const reportB64 = response.headers.get('X-Processing-Report');
-        const fileName = response.headers.get('X-File-Name') || 'Hasil_Stuffing_Otomatis.xlsx';
+      // ── Download the output file directly from browser ──
+      const blob = new Blob([outputBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'Hasil_Stuffing_Otomatis.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
 
-        if (reportB64) {
-          try {
-            const reportJson = decodeURIComponent(escape(atob(reportB64)));
-            const parsed = JSON.parse(reportJson);
-            setReport(parsed.report || null);
-            setWarnings(parsed.warnings || []);
-          } catch (e) {
-            console.warn('Failed to parse report header:', e);
-          }
-        }
+      // ── Save report to DB in background (non-blocking) ──
+      setMessage('Menyimpan riwayat...');
+      fetch('/api/process-excel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          report: processingReport,
+          stuffingFileName: stuffingFile?.name || '',
+          inspectionFileName: inspectionFile?.name || '',
+          blcFileName: blcFile?.name || '',
+        }),
+      }).catch(() => {});
 
-        // Download the file blob directly
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-
-        setStatus('success');
-        setMessage('File berhasil diproses dan diunduh!');
-      } else {
-        // ── JSON RESPONSE (error) ──
-        const data = await response.json();
-        throw new Error(data.error || `Server error: ${response.status}`);
-      }
+      setStatus('success');
+      setMessage('File berhasil diproses dan diunduh!');
     } catch (err) {
       setStatus('error');
       setMessage(err.message || 'Terjadi kesalahan saat memproses file.');
