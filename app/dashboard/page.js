@@ -190,29 +190,45 @@ export default function Home() {
       formData.append('inspection', inspectionFile);
 
       const response = await fetch('/api/process-excel', { method: 'POST', body: formData });
-      const data = await response.json();
 
-      if (!response.ok) throw new Error(data.error || `Server error: ${response.status}`);
+      // Check if response is binary (success) or JSON (error)
+      const contentType = response.headers.get('Content-Type') || '';
 
-      setReport(data.report || null);
-      setWarnings(data.warnings || []);
+      if (contentType.includes('application/vnd.openxmlformats')) {
+        // ── BINARY RESPONSE (success) ──
+        // Extract report from X-Processing-Report header
+        const reportB64 = response.headers.get('X-Processing-Report');
+        const fileName = response.headers.get('X-File-Name') || 'Hasil_Stuffing_Otomatis.xlsx';
 
-      if (data.fileBase64) {
-        const byteCharacters = atob(data.fileBase64);
-        const byteArray = new Uint8Array(Array.from(byteCharacters, c => c.charCodeAt(0)));
-        const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        if (reportB64) {
+          try {
+            const reportJson = decodeURIComponent(escape(atob(reportB64)));
+            const parsed = JSON.parse(reportJson);
+            setReport(parsed.report || null);
+            setWarnings(parsed.warnings || []);
+          } catch (e) {
+            console.warn('Failed to parse report header:', e);
+          }
+        }
+
+        // Download the file blob directly
+        const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = data.fileName || 'Hasil_Stuffing_Otomatis.xlsx';
+        a.download = fileName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
-      }
 
-      setStatus('success');
-      setMessage('File berhasil diproses dan diunduh!');
+        setStatus('success');
+        setMessage('File berhasil diproses dan diunduh!');
+      } else {
+        // ── JSON RESPONSE (error) ──
+        const data = await response.json();
+        throw new Error(data.error || `Server error: ${response.status}`);
+      }
     } catch (err) {
       setStatus('error');
       setMessage(err.message || 'Terjadi kesalahan saat memproses file.');
@@ -241,7 +257,6 @@ export default function Home() {
         onLogout={handleLogout}
       />
 
-      {/* Main area — margin-left matches sidebar width */}
       <div className="flex-1 flex flex-col min-w-0 transition-all duration-280"
            style={{ marginLeft: sidebarCollapsed ? 68 : 260 }}>
         <DashboardHeader activePage={activePage} status={status} />

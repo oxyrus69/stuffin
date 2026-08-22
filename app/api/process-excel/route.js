@@ -14,14 +14,12 @@ function setCellValue(sheet, rowIdx, colIdx, value) {
   const cell = sheet[addr];
   if (cell) {
     cell.v = value;
-    // Update type: number for 0, string for date text
     if (typeof value === 'number') {
       cell.t = 'n';
     } else {
       cell.t = 's';
     }
   } else {
-    // Cell doesn't exist yet — create it
     sheet[addr] = {
       v: value,
       t: typeof value === 'number' ? 'n' : 's',
@@ -120,7 +118,6 @@ export async function POST(request) {
       }
     }
 
-    // Store sheet names for report
     report.summary.stuffingSheets = wbStuffing.SheetNames;
     report.summary.inspectionSheets = wbInspection.SheetNames;
     if (wbBlc) report.summary.blcSheets = wbBlc.SheetNames;
@@ -218,7 +215,6 @@ export async function POST(request) {
       if (!row || row.length === 0) continue;
       const packVal = row[packBlcColIndex];
       if (packVal === 0 || packVal === '0' || packVal === 0.0) {
-        // Modify the original worksheet cell directly to preserve named ranges
         setCellValue(nbOrderSheet, i, packBlcColIndex, todayStr);
         packBlcUpdated++;
       } else {
@@ -351,7 +347,6 @@ export async function POST(request) {
         continue;
       }
       if (passedPOs.has(poVal)) {
-        // Modify the original worksheet cell directly to preserve named ranges
         setCellValue(nbOrderSheet, i, siBlcColIndex, 0);
         siBlcUpdated++;
         if (matchedPOs.length < 10) matchedPOs.push(poVal);
@@ -369,15 +364,10 @@ export async function POST(request) {
     report.steps.push(step3);
 
     // ─── Write workbook to buffer ──────────────
-    // No need to recreate the sheet — we modified nbOrderSheet in-place,
-    // which preserves named ranges, merged cells, formatting, etc.
     const outputBuffer = XLSX.write(wbStuffing, {
       type: 'buffer',
       bookType: 'xlsx',
     });
-
-    // Convert to base64 for JSON response
-    const fileBase64 = outputBuffer.toString('base64');
 
     const outputSizeKB = (outputBuffer.length / 1024).toFixed(1);
 
@@ -406,10 +396,20 @@ export async function POST(request) {
       report.warnings.push(`Gagal menyimpan riwayat ke database: ${dbErr.message}`);
     }
 
-    return NextResponse.json({
-      report,
-      fileBase64,
-      fileName: 'Hasil_Stuffing_Otomatis.xlsx',
+    // ─── Return binary file + report in headers ───────────
+    // Instead of base64 in JSON (which bloats to ~6MB), send raw binary.
+    // The report is small (~2KB) and goes in a response header.
+    const reportJson = JSON.stringify({ report, warnings: report.warnings });
+    const reportBase64 = Buffer.from(reportJson).toString('base64');
+
+    return new Response(outputBuffer, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="Hasil_Stuffing_Otomatis.xlsx"',
+        'X-Processing-Report': reportBase64,
+        'X-File-Name': 'Hasil_Stuffing_Otomatis.xlsx',
+      },
     });
 
   } catch (error) {
