@@ -1,404 +1,559 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
-import FilePreview from '../components/FilePreview';
-import ProcessingReport from '../components/ProcessingReport';
-import Sidebar from '../components/Sidebar';
-import DashboardHeader from '../components/DashboardHeader';
-import RiwayatPage from '../components/RiwayatPage';
-import ReferensiPage from '../components/ReferensiPage';
-import { saveFile, restoreAllFiles, clearAllFiles } from '../../lib/fileStorage';
+import { useState } from 'react';
 
-/* ─── File Card ─── */
-function FileCard({ label, description, file, onFile, accept, validation }) {
-  const [isDragging, setIsDragging] = useState(false);
-  const inputRef = useRef(null);
+/* ══════════════════════════════════════════════════════════════
+   Icons (inline, heroicons outline)
+   ══════════════════════════════════════════════════════════════ */
+const Icon = ({ d, className = 'h-5 w-5' }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+    <path strokeLinecap="round" strokeLinejoin="round" d={d} />
+  </svg>
+);
+const ICONS = {
+  home: 'M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75',
+  bolt: 'M13 10V3L4 14h7v7l9-11h-7z',
+  clock: 'M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z',
+  doc: 'M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z',
+  book: 'M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25',
+  cog: 'M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.28z M15 12a3 3 0 11-6 0 3 3 0 016 0z',
+  chevron: 'M11.25 4.5l7.5 7.5-7.5 7.5m-6-15l7.5 7.5-7.5 7.5',
+  menu: 'M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5',
+};
 
-  const handleDrag = useCallback((e) => { e.preventDefault(); e.stopPropagation(); }, []);
-  const handleDragIn = useCallback((e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }, []);
-  const handleDragOut = useCallback((e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); }, []);
-  const handleDrop = useCallback((e) => {
-    e.preventDefault(); e.stopPropagation(); setIsDragging(false);
-    if (e.dataTransfer.files?.[0]) onFile(e.dataTransfer.files[0]);
-  }, [onFile]);
+/* ══════════════════════════════════════════════════════════════
+   Nav config
+   ══════════════════════════════════════════════════════════════ */
+const NAV_ITEMS = [
+  { id: 'beranda', label: 'Beranda', title: 'Beranda', icon: ICONS.home },
+  { id: 'proses', label: 'Proses BLC', title: 'Proses BLC', icon: ICONS.bolt },
+  { id: 'riwayat', label: 'Riwayat Proses', title: 'Riwayat Proses', icon: ICONS.clock },
+  { id: 'referensi', label: 'Referensi Format', title: 'Referensi Format File', icon: ICONS.doc },
+  { id: 'panduan', label: 'Panduan', title: 'Panduan Penggunaan', icon: ICONS.book },
+  { id: 'pengaturan', label: 'Pengaturan', title: 'Pengaturan', icon: ICONS.cog },
+];
 
-  const handleClick = () => inputRef.current?.click();
-  const handleChange = (e) => { if (e.target.files?.[0]) onFile(e.target.files[0]); };
+const JIT_COLUMNS = ['OrdNo','StyleNo','OrdPairs','StitProd','StitBal','RBProd','RBBal','InsoleProd','InsoleBal','BottProd','BottBal','StockInStk','Balance','AssProd','AssBal','PackProd','PackBal','FinProd','FinBal','StyleName','color','Type'];
 
-  const hasFile = !!file && file.size > 0;
-  const isReady = hasFile && !validation;
-
-  let cardClass = 'file-card';
-  if (validation) cardClass += ' file-card-error';
-  else if (isReady) cardClass += ' file-card-ready';
-  else if (isDragging) cardClass += ' file-card-active';
-
-  const dotClass = validation ? 'file-card-status-dot-error'
-    : isReady ? 'file-card-status-dot-ready'
-    : isDragging ? 'file-card-status-dot-active'
-    : 'file-card-status-dot-empty';
-
+/* ══════════════════════════════════════════════════════════════
+   Small building blocks
+   ══════════════════════════════════════════════════════════════ */
+function StatCard({ label, value, hint, accent = 'indigo' }) {
+  const accents = {
+    indigo: 'bg-indigo-50 text-indigo-600',
+    emerald: 'bg-emerald-50 text-emerald-600',
+    amber: 'bg-amber-50 text-amber-600',
+  };
   return (
-    <div>
-      <div
-        className={cardClass}
-        onDragEnter={handleDragIn} onDragLeave={handleDragOut}
-        onDragOver={handleDrag} onDrop={handleDrop}
-        onClick={handleClick} role="button" tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); }}
-      >
-        <div className="file-card-status">
-          <span className={`file-card-status-dot ${dotClass}`} />
-          {validation && (
-            <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1 py-0.5 rounded">!</span>
-          )}
-        </div>
-
-        <div className={`file-card-icon ${isReady ? '' : 'file-card-icon-empty'}`}>
-          {isReady ? (
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          ) : (
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-            </svg>
-          )}
-        </div>
-
-        <p className="file-card-label">{label}</p>
-        <p className="file-card-desc">{description}</p>
-
-        {hasFile && (
-          <div className="mt-2 text-center">
-            <p className="file-card-name">{file.name}</p>
-            <p className="file-card-size">{(file.size / 1024).toFixed(1)} KB · Klik untuk ganti</p>
-          </div>
-        )}
-
-        <input ref={inputRef} type="file" accept={accept || '.xlsx,.xls'} className="hidden" onChange={handleChange} />
+    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className={`mb-3 inline-flex h-9 w-9 items-center justify-center rounded-lg ${accents[accent]}`}>
+        <Icon d={ICONS.bolt} className="h-4 w-4" />
       </div>
-
-      {validation && (
-        <p className="mt-1.5 text-[11px] text-red-500 flex items-center gap-1.5 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100">
-          <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-          </svg>
-          {validation}
-        </p>
-      )}
-
-      {hasFile && (
-        <FilePreview file={file} label={label} sheetName={label.includes('Stuffing') ? 'NB ORDER' : null} />
-      )}
+      <p className="text-2xl font-bold text-gray-900">{value}</p>
+      <p className="mt-0.5 text-xs font-medium text-gray-500">{label}</p>
+      {hint && <p className="mt-1 text-[11px] text-gray-400">{hint}</p>}
     </div>
   );
 }
 
-/* ─── Validation ─── */
-function validateFileClient(file, required = true) {
-  if (!file || file.size === 0) {
-    if (required) return 'File wajib diunggah.';
-    return null;
-  }
-  const ext = file.name?.split('.').pop()?.toLowerCase();
-  if (ext !== 'xlsx' && ext !== 'xls') return 'Format harus .xlsx atau .xls.';
-  if (file.size > 50 * 1024 * 1024) return 'Ukuran file maks 50 MB.';
-  return null;
+function SectionCard({ title, subtitle, children }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="border-b border-gray-100 px-5 py-4">
+        <h2 className="text-sm font-semibold text-gray-800">{title}</h2>
+        {subtitle && <p className="mt-0.5 text-xs text-gray-500">{subtitle}</p>}
+      </div>
+      <div className="p-5">{children}</div>
+    </div>
+  );
 }
 
-/* ─── Flow Steps ─── */
-const FLOW_STEPS = [
-  { num: '1', title: 'Membaca sheet NB ORDER', desc: 'Mengisi tanggal hari ini pada kolom Pack. Blc yang bernilai 0.' },
-  { num: '2', title: 'Membaca sheet Apr', desc: 'Mengumpulkan nomor PO yang tidak mengandung status REJECT.' },
-  { num: '3', title: 'Mencocokkan PO ke NB ORDER', desc: 'Menyetel kolom SI Blc menjadi 0 untuk PO yang lolos inspeksi.' },
-];
+function PlaceholderBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 ring-1 ring-amber-200">
+      Segera Hadir
+    </span>
+  );
+}
 
-/* ═══════════════════════════════════════════════════════════════
-   MAIN PAGE
-   ═══════════════════════════════════════════════════════════════ */
-export default function Home() {
-  const [blcFile, setBlcFile] = useState(null);
-  const [stuffingFile, setStuffingFile] = useState(null);
-  const [inspectionFile, setInspectionFile] = useState(null);
+/* ══════════════════════════════════════════════════════════════
+   PAGE — Proses BLC (upload + merge)
+   ══════════════════════════════════════════════════════════════ */
+function ProsesPage({ summary, setSummary }) {
+  const [jitFiles, setJitFiles] = useState([]);
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
-  const [report, setReport] = useState(null);
-  const [warnings, setWarnings] = useState([]);
-  const [clientErrors, setClientErrors] = useState({});
-  const [filesRestored, setFilesRestored] = useState(false);
-  const [activePage, setActivePage] = useState('proses');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [error, setError] = useState(null);
+  const [isDragging, setIsDragging] = useState(null);
 
-  useEffect(() => {
-    const authCookie = document.cookie.split('; ').find(c => c.startsWith('app_auth='));
-    if (authCookie?.includes('logged_out')) {
-      window.location.href = '/login';
-      return;
+  const validateFile = (file) => {
+    const ext = file.name?.split('.').pop()?.toLowerCase();
+    if (ext !== 'xlsx' && ext !== 'xls') return 'Format harus .xlsx atau .xls.';
+    if (file.size > 50 * 1024 * 1024) return `"${file.name}" melebihi 50 MB.`;
+    return null;
+  };
+
+  const addFiles = (files) => {
+    let err = null;
+    for (const f of files) { err = validateFile(f); if (err) break; }
+    setError(err);
+    if (!err && files.length > 0) {
+      setJitFiles((prev) => {
+        const map = new Map(prev.map((f) => [`${f.name}:${f.size}`, f]));
+        for (const f of files) map.set(`${f.name}:${f.size}`, f);
+        return Array.from(map.values());
+      });
     }
-    restoreAllFiles().then((restored) => {
-      if (restored.blc) setBlcFile(restored.blc);
-      if (restored.stuffing) setStuffingFile(restored.stuffing);
-      if (restored.inspection) setInspectionFile(restored.inspection);
-      setFilesRestored(true);
-    }).catch(() => setFilesRestored(true));
-  }, []);
-
-  const handleBlcFile = async (file) => {
-    const err = validateFileClient(file, false);
-    setClientErrors(prev => ({ ...prev, blc: err }));
-    if (!err) { setBlcFile(file); await saveFile('blc', file).catch(() => {}); }
-  };
-  const handleStuffingFile = async (file) => {
-    const err = validateFileClient(file, true);
-    setClientErrors(prev => ({ ...prev, stuffing: err }));
-    if (!err) { setStuffingFile(file); await saveFile('stuffing', file).catch(() => {}); }
-  };
-  const handleInspectionFile = async (file) => {
-    const err = validateFileClient(file, true);
-    setClientErrors(prev => ({ ...prev, inspection: err }));
-    if (!err) { setInspectionFile(file); await saveFile('inspection', file).catch(() => {}); }
   };
 
-  const allFilesSelected = blcFile && stuffingFile && inspectionFile;
-  const hasClientErrors = Object.values(clientErrors).some(Boolean);
+  const removeFile = (name) => setJitFiles((prev) => prev.filter((f) => f.name !== name));
+  const resetAll = () => {
+    setJitFiles([]); setStatus('idle'); setMessage(''); setError(null); setSummary(null);
+  };
 
   const handleProcess = async () => {
-    if (!allFilesSelected || hasClientErrors) return;
-
-    const preErrors = {};
-    const errS = validateFileClient(stuffingFile, true);
-    const errI = validateFileClient(inspectionFile, true);
-    if (errS) preErrors.stuffing = errS;
-    if (errI) preErrors.inspection = errI;
-    if (Object.keys(preErrors).length > 0) {
-      setClientErrors(preErrors);
-      setStatus('error');
-      setMessage('Periksa file yang diunggah — ada file yang tidak valid.');
-      return;
-    }
-
     setStatus('processing');
-    setMessage('Memproses file di Web Worker...');
-    setReport(null);
-    setWarnings([]);
-
+    setMessage('Mengunggah & menggabungkan file JIT...');
+    setSummary(null);
     try {
-      // ── Read files into ArrayBuffers for the worker ──
-      setMessage('Membaca file...');
-      const blcArrBuf = blcFile ? await blcFile.arrayBuffer() : null;
-      const stuffingArrBuf = await stuffingFile.arrayBuffer();
-      const inspectionArrBuf = await inspectionFile.arrayBuffer();
+      const fd = new FormData();
+      jitFiles.forEach((f) => fd.append('jit', f));
+      const res = await fetch('/api/process-excel', { method: 'POST', body: fd });
+      if (!res.ok) {
+        let errMsg = `Server error (${res.status}).`;
+        try { const j = await res.json(); if (j.error) errMsg = j.error; } catch {}
+        throw new Error(errMsg);
+      }
+      const reportHeader = res.headers.get('X-Process-Report');
+      if (reportHeader) { try { setSummary(JSON.parse(decodeURIComponent(reportHeader))); } catch {} }
 
-      // ── Create Web Worker and process off main thread ──
-      setMessage('Memproses Excel di background (UI tetap responsif)...');
-      const { outputBuffer, report: processingReport } = await new Promise((resolve, reject) => {
-        const worker = new Worker(
-          new URL('../../lib/excelWorker.js', import.meta.url),
-          { type: 'module' }
-        );
-        worker.onmessage = (ev) => {
-          worker.terminate();
-          if (ev.data.error) reject(new Error(ev.data.error));
-          else resolve(ev.data);
-        };
-        worker.onerror = (ev) => {
-          worker.terminate();
-          reject(new Error(ev.message || 'Web Worker error'));
-        };
-        worker.postMessage({
-          blcBuffer: blcArrBuf,
-          stuffingBuffer: stuffingArrBuf,
-          inspectionBuffer: inspectionArrBuf,
-          blcName: blcFile?.name || '',
-          stuffingName: stuffingFile?.name || '',
-          inspectionName: inspectionFile?.name || '',
-        });
-      });
-
-      setReport(processingReport);
-      setWarnings(processingReport.warnings || []);
-
-      // ── Download the output file directly from browser ──
-      const blob = new Blob([outputBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const blob = await res.blob();
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = cd.match(/filename="?([^";]+)"?/);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'Hasil_Stuffing_Otomatis.xlsx';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      a.download = m ? m[1] : 'BLC_HDU.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
       window.URL.revokeObjectURL(url);
 
-      // ── Save report to DB in background (non-blocking) ──
-      setMessage('Menyimpan riwayat...');
-      fetch('/api/process-excel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          report: processingReport,
-          stuffingFileName: stuffingFile?.name || '',
-          inspectionFileName: inspectionFile?.name || '',
-          blcFileName: blcFile?.name || '',
-        }),
-      }).catch(() => {});
-
       setStatus('success');
-      setMessage('File berhasil diproses dan diunduh!');
+      setMessage(`Selesai! ${jitFiles.length} file JIT digabung — file BLC terunduh.`);
     } catch (err) {
       setStatus('error');
       setMessage(err.message || 'Terjadi kesalahan saat memproses file.');
     }
   };
 
-  const handleReset = async () => {
-    setBlcFile(null); setStuffingFile(null); setInspectionFile(null);
-    setStatus('idle'); setMessage(''); setReport(null); setWarnings([]); setClientErrors({});
-    await clearAllFiles().catch(() => {});
-  };
+  return (
+    <div className="space-y-5">
+      {/* Steps */}
+      <ol className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        {[
+          { num: '1', title: 'Upload Multi File JIT', desc: 'Pilih semua laporan JIT sekaligus. Urutkan dari data paling lama (pagi) ke terbaru.' },
+          { num: '2', title: 'Filter Order NB', desc: 'Hanya baris dengan OrdNo mengandung "NB" yang dipakai; order lain dibuang.' },
+          { num: '3', title: 'Gabungkan', desc: 'Order duplikat antar-file diambil dari file yang diunggah lebih dulu, lalu disusun jadi BLC.' },
+        ].map((s) => (
+          <li key={s.num} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <span className="mb-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">{s.num}</span>
+            <p className="text-sm font-semibold text-gray-800">{s.title}</p>
+            <p className="mt-1 text-xs leading-relaxed text-gray-500">{s.desc}</p>
+          </li>
+        ))}
+      </ol>
 
-  const handleLogout = async () => {
-    await clearAllFiles().catch(() => {});
-    document.cookie = 'app_auth=logged_out; path=/; max-age=31536000';
-    window.location.href = '/login';
-  };
+      {/* Dropzone */}
+      <div
+        role="button" tabIndex={0}
+        onClick={() => document.getElementById('jit-input')?.click()}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && document.getElementById('jit-input')?.click()}
+        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setIsDragging(false); if (e.dataTransfer.files?.length) addFiles(Array.from(e.dataTransfer.files)); }}
+        className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-10 text-center transition-colors
+          ${error ? 'border-red-300 bg-red-50/60'
+            : isDragging ? 'border-indigo-400 bg-indigo-50'
+            : 'border-gray-300 bg-white hover:border-indigo-400 hover:bg-indigo-50/40'}`}
+      >
+        <Icon d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" className="h-10 w-10 text-gray-400" />
+        <div>
+          <p className="text-sm font-semibold text-gray-800">Klik atau seret file Data JIT ke sini</p>
+          <p className="mt-1 text-xs text-gray-500">Format .xlsx / .xls · bisa banyak file sekaligus</p>
+        </div>
+        <input id="jit-input" type="file" accept=".xlsx,.xls" multiple className="hidden"
+               onChange={(e) => { if (e.target.files?.length) addFiles(Array.from(e.target.files)); e.target.value = ''; }} />
+      </div>
+
+      {error && (
+        <p className="flex items-center gap-1.5 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">⚠️ {error}</p>
+      )}
+
+      {/* Selected files */}
+      {jitFiles.length > 0 && (
+        <ul className="space-y-1.5">
+          {jitFiles.map((f, i) => (
+            <li key={f.name + f.size} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-2.5 shadow-sm">
+              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[11px] font-bold text-indigo-700">{i + 1}</span>
+              <span className="min-w-0 flex-1 truncate text-sm text-gray-700">{f.name}</span>
+              <span className="shrink-0 text-xs text-gray-400">{(f.size / 1024).toFixed(0)} KB</span>
+              <button type="button" onClick={() => removeFile(f.name)} aria-label={`Hapus ${f.name}`}
+                      className="shrink-0 rounded-full px-2 py-0.5 text-xs text-gray-400 hover:bg-red-50 hover:text-red-600">✕</button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Status */}
+      {message && (
+        <div role="alert" className={`flex items-center gap-2.5 rounded-xl border px-4 py-3 text-sm ${
+          status === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+          : status === 'error' ? 'border-red-200 bg-red-50 text-red-700'
+          : 'border-indigo-200 bg-indigo-50 text-indigo-800'}`}>
+          {status === 'processing' && (
+            <svg className="h-4 w-4 animate-spin text-indigo-600" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+          )}
+          {(status === 'success' || status === 'error') && <span>{status === 'success' ? '✅' : '⚠️'}</span>}
+          <span>{message}</span>
+        </div>
+      )}
+
+      {/* Summary */}
+      {summary && (
+        <dl className="grid grid-cols-3 gap-3">
+          {[['File JIT', summary.jitFiles], ['Order NB', summary.nbOrders], ['Periode', summary.period]].map(([label, value]) => (
+            <div key={label} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-center shadow-sm">
+              <dt className="text-[10px] uppercase tracking-wide text-gray-400">{label}</dt>
+              <dd className="text-lg font-bold text-gray-800">{value ?? '-'}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center justify-end gap-3">
+        {jitFiles.length > 0 && (
+          <button onClick={resetAll}
+                  className="rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-600 hover:bg-gray-50">
+            Reset
+          </button>
+        )}
+        <button onClick={handleProcess}
+                disabled={jitFiles.length === 0 || status === 'processing' || !!error}
+                className={`inline-flex items-center gap-2 rounded-xl px-8 py-3 text-sm font-semibold text-white shadow-md transition-all
+                  ${jitFiles.length > 0 && !error && status !== 'processing'
+                    ? 'bg-indigo-600 hover:bg-indigo-700 hover:shadow-lg active:scale-[0.98]'
+                    : 'cursor-not-allowed bg-gray-300 shadow-none'}`}>
+          {status === 'processing' ? (
+            <>
+              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+              Memproses...
+            </>
+          ) : (
+            <>
+              <Icon d={ICONS.bolt} className="h-4 w-4" />
+              Gabungkan & Unduh BLC
+            </>
+          )}
+        </button>
+      </div>
+
+      {jitFiles.length === 0 && (
+        <p className="text-right text-xs text-gray-400">Pilih minimal satu file JIT untuk mengaktifkan tombol.</p>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PAGE — Beranda
+   ══════════════════════════════════════════════════════════════ */
+function BerandaPage({ lastResult, onNavigate }) {
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <StatCard label="File JIT Terakhir" value={lastResult ? lastResult.jitFiles : '—'} hint={lastResult ? 'Hasil proses terakhir' : 'Belum ada pemrosesan'} />
+        <StatCard label="Order NB Tergabung" value={lastResult ? lastResult.nbOrders : '—'} hint={lastResult ? `Periode ${lastResult.period}` : 'Belum ada pemrosesan'} accent="emerald" />
+        <StatCard label="Status Sistem" value="Siap" hint="Mesin penggabungan aktif" accent="amber" />
+      </div>
+
+      <SectionCard title="Mulai Cepat" subtitle="Tiga langkah menghasilkan file BLC">
+        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+          <ol className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            {['Upload JIT', 'Filter order NB', 'Gabung & unduh'].map((s, i) => (
+              <li key={s} className="flex items-center gap-2">
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-bold text-indigo-700">{i + 1}</span>
+                {s}
+                {i < 2 && <span className="text-gray-300">→</span>}
+              </li>
+            ))}
+          </ol>
+          <button onClick={() => onNavigate('proses')}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700">
+            <Icon d={ICONS.bolt} className="h-3.5 w-3.5" /> Mulai Proses
+          </button>
+        </div>
+      </SectionCard>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <SectionCard title="Aktivitas Terkini" subtitle="Log pemrosesan tersimpan di menu Riwayat">
+          <div className="flex flex-col items-center py-8 text-center text-gray-400">
+            <Icon d={ICONS.clock} className="h-8 w-8" />
+            <p className="mt-2 text-xs">Belum ada aktivitas pada sesi ini.</p>
+            <button onClick={() => onNavigate('riwayat')} className="mt-3 text-xs font-semibold text-indigo-600 hover:underline">
+              Lihat Riwayat →
+            </button>
+          </div>
+        </SectionCard>
+        <SectionCard title="Butuh Bantuan?" subtitle="Dokumentasi alur & format file">
+          <p className="text-xs leading-relaxed text-gray-500">
+            Pelajari struktur kolom JIT yang dikenali sistem dan langkah pemrosesan di menu Panduan.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button onClick={() => onNavigate('panduan')} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">Buka Panduan</button>
+            <button onClick={() => onNavigate('referensi')} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">Referensi Format</button>
+          </div>
+        </SectionCard>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PAGE — Riwayat (placeholder)
+   ══════════════════════════════════════════════════════════════ */
+function RiwayatPage() {
+  const cols = ['Tanggal', 'Jumlah File JIT', 'Order NB', 'Nama Output', 'Status'];
+  return (
+    <div className="space-y-4">
+      <PlaceholderBadge />
+      <SectionCard title="Riwayat Pemrosesan" subtitle="Arsip hasil penggabungan BLC per hari">
+        <div className="overflow-hidden rounded-lg border border-gray-100">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-gray-50 text-gray-500">
+              <tr>{cols.map((c) => <th key={c} className="px-4 py-2.5 font-semibold">{c}</th>)}</tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colSpan={cols.length} className="px-4 py-10 text-center text-gray-400">
+                  Belum ada riwayat. Setiap proses yang berhasil akan tercatat di sini.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PAGE — Referensi Format
+   ══════════════════════════════════════════════════════════════ */
+function ReferensiPage() {
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <SectionCard title="Format Input — Data JIT" subtitle="Struktur kolom yang dikenali sistem">
+        <p className="mb-3 text-xs leading-relaxed text-gray-500">
+          Sistem mencari baris header berisi <code className="rounded bg-gray-100 px-1 font-mono text-[11px]">OrdNo</code> dan{' '}
+          <code className="rounded bg-gray-100 px-1 font-mono text-[11px]">StyleNo</code> di sheet mana pun,
+          lalu hanya menyimpan baris dengan OrdNo mengandung <strong>NB</strong>.
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {JIT_COLUMNS.map((c) => (
+            <code key={c} className="rounded-md bg-indigo-50 px-2 py-1 text-[11px] font-mono text-indigo-700 ring-1 ring-indigo-100">{c}</code>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Format Output — BLC" subtitle="Contoh acuan: BLC HDU 8.22 PAGI.xlsx">
+        <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-[11px] leading-relaxed text-slate-100">
+{`Baris 1  : Production Report By Order
+Baris 2  : (kosong)
+Baris 3  : <tahun> <bulan>        contoh: 2026 8
+Baris 4  : jumlah baris data
+Baris 5  : header kolom (OrdNo ...)
+Baris 6+ : data order NB gabungan
+
+Sheet    : BLC HDU <bulan>.<tanggal> PAGI
+Filename : BLC HDU <bulan>.<tanggal>.xlsx`}
+        </pre>
+        <p className="mt-3 text-xs text-gray-500">
+          Duplikasi antar-file diselesaikan dengan prioritas urutan unggah: file pertama menang.
+        </p>
+      </SectionCard>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PAGE — Panduan
+   ══════════════════════════════════════════════════════════════ */
+function PanduanPage() {
+  const steps = [
+    { t: 'Siapkan file JIT', d: 'Kumpulkan semua laporan JIT harian/bulanan dalam format .xlsx. Urutkan dari data paling lama (mis. pagi) ke terbaru.' },
+    { t: 'Buka menu Proses BLC', d: 'Seret atau klik area unggah, pilih beberapa file sekaligus. Daftar file bernomor sesuai urutan unggah.' },
+    { t: 'Klik Gabungkan & Unduh BLC', d: 'Sistem memilah order NB, menghapus duplikat (file lebih awal menang), dan menyusun file BLC baru.' },
+    { t: 'Periksa hasil unduhan', d: 'Cek jumlah baris pada baris ke-4 sheet BLC dan bandingkan dengan ringkasan Order NB di halaman.' },
+  ];
+  return (
+    <SectionCard title="Panduan Penggunaan" subtitle="Alur lengkap dari unggahan hingga file BLC">
+      <ol className="relative space-y-6 border-l-2 border-indigo-100 pl-6">
+        {steps.map((s, i) => (
+          <li key={s.t} className="relative">
+            <span className="absolute -left-[31px] flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-[11px] font-bold text-white ring-4 ring-white">
+              {i + 1}
+            </span>
+            <p className="text-sm font-semibold text-gray-800">{s.t}</p>
+            <p className="mt-1 text-xs leading-relaxed text-gray-500">{s.d}</p>
+          </li>
+        ))}
+      </ol>
+      <div className="mt-6 rounded-lg bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-700 ring-1 ring-amber-100">
+        ⚠️ Jika file JIT mentah Anda memiliki struktur header berbeda dan gagal terbaca, kirimkan contoh filenya agar pola deteksi dapat disesuaikan.
+      </div>
+    </SectionCard>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PAGE — Pengaturan (placeholder)
+   ══════════════════════════════════════════════════════════════ */
+function PengaturanPage() {
+  const settings = [
+    { t: 'Unduh otomatis setelah proses', d: 'File BLC langsung terunduh tanpa konfirmasi tambahan.', on: true },
+    { t: 'Nama sheet kustom', d: 'Ganti pola nama "BLC HDU <tgl> PAGI".', on: false },
+    { t: 'Simpan riwayat ke database', d: 'Catat setiap pemrosesan beserta statistiknya.', on: false },
+    { t: 'Mode gelap', d: 'Tampilan gelap untuk seluruh dashboard.', on: false },
+  ];
+  return (
+    <div className="space-y-4">
+      <PlaceholderBadge />
+      <SectionCard title="Preferensi Aplikasi" subtitle="Opsi berikut masih bersifat pratinjau">
+        <ul className="divide-y divide-gray-100">
+          {settings.map((s) => (
+            <li key={s.t} className="flex items-center justify-between gap-4 py-3.5 first:pt-0 last:pb-0">
+              <div>
+                <p className="text-sm font-medium text-gray-700">{s.t}</p>
+                <p className="mt-0.5 text-xs text-gray-400">{s.d}</p>
+              </div>
+              <span className={`relative inline-flex h-5 w-9 shrink-0 cursor-not-allowed items-center rounded-full ${s.on ? 'bg-indigo-600 opacity-60' : 'bg-gray-200'}`}>
+                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow ${s.on ? 'translate-x-[18px]' : 'translate-x-[3px]'}`} />
+              </span>
+            </li>
+          ))}
+        </ul>
+      </SectionCard>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   DASHBOARD SHELL
+   ══════════════════════════════════════════════════════════════ */
+export default function Dashboard() {
+  const [activePage, setActivePage] = useState('beranda');
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [lastResult, setLastResult] = useState(null);
+
+  const navigate = (page) => { setActivePage(page); setMobileOpen(false); };
+  const active = NAV_ITEMS.find((n) => n.id === activePage);
+  const today = new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
-      <Sidebar
-        activePage={activePage}
-        onNavigate={setActivePage}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-        onLogout={handleLogout}
-      />
+    <div className="flex h-screen overflow-hidden bg-gray-50">
 
-      <div className="flex-1 flex flex-col min-w-0 transition-all duration-280"
-           style={{ marginLeft: sidebarCollapsed ? 68 : 260 }}>
-        <DashboardHeader activePage={activePage} status={status} />
+      {/* ─── Sidebar ─── */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-30 flex flex-col bg-slate-900 text-slate-300 transition-all duration-200
+          ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0
+          ${collapsed ? 'md:w-[68px]' : 'md:w-64'} w-64`}
+      >
+        {/* Logo */}
+        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-slate-800 px-4">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 font-black text-white">B</span>
+          {!collapsed && (
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-white">BLC Processor</p>
+              <p className="truncate text-[10px] text-slate-500">Stuffing Automation Suite</p>
+            </div>
+          )}
+        </div>
 
+        {/* Nav */}
+        <nav className="flex-1 space-y-1 overflow-y-auto p-3">
+          {NAV_ITEMS.map((item) => (
+            <button key={item.id} onClick={() => navigate(item.id)} title={item.label}
+                    className={`group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors
+                      ${activePage === item.id
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'hover:bg-slate-800 hover:text-white'}`}>
+              <Icon d={item.icon} className="h-5 w-5 shrink-0" />
+              {!collapsed && <span className="truncate">{item.label}</span>}
+              {!collapsed && item.id !== 'beranda' && item.id !== 'proses' && (
+                <span className={`ml-auto rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase ${activePage === item.id ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-500 group-hover:bg-slate-700'}`}>
+                  soon
+                </span>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        {/* Collapse toggle (desktop only) */}
+        <div className="hidden shrink-0 border-t border-slate-800 p-3 md:block">
+          <button onClick={() => setCollapsed(!collapsed)}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white">
+            <Icon d={ICONS.chevron} className={`h-5 w-5 shrink-0 transition-transform ${collapsed ? '' : 'rotate-180'}`} />
+            {!collapsed && <span>Ciutkan</span>}
+          </button>
+        </div>
+      </aside>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-20 bg-slate-900/50 md:hidden" onClick={() => setMobileOpen(false)} />
+      )}
+
+      {/* ─── Main area ─── */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Header */}
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 sm:px-6">
+          <div className="flex items-center gap-3">
+            <button className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 md:hidden"
+                    onClick={() => setMobileOpen(true)} aria-label="Buka menu">
+              <Icon d={ICONS.menu} />
+            </button>
+            <div>
+              <h1 className="text-sm font-bold text-gray-900">{active?.title}</h1>
+              <p className="hidden text-[11px] text-gray-400 sm:block">Stuffing Processor · Otomatisasi penggabungan Data JIT</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="hidden rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 ring-1 ring-emerald-200 sm:inline-flex">
+              ● Mesin aktif
+            </span>
+            <span className="hidden text-xs text-gray-400 lg:block">{today}</span>
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">
+              OP
+            </span>
+          </div>
+        </header>
+
+        {/* Content */}
         <main className="flex-1 overflow-y-auto">
-          <div className="p-5 max-w-[1200px]">
-
-            {activePage === 'riwayat' ? (
-              <RiwayatPage />
-            ) : activePage === 'referensi' ? (
-              <ReferensiPage />
-            ) : (
-              <>
-                {/* Flow */}
-                <div className="flow-card animate-fade-up">
-                  <h2 className="flow-card-title">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" />
-                    </svg>
-                    Alur Pemrosesan
-                  </h2>
-                  <ol className="space-y-0">
-                    {FLOW_STEPS.map((s, i) => (
-                      <li key={i} className="flow-step">
-                        <span className="flow-step-num">{s.num}</span>
-                        <span className="text-gray-700">
-                          <strong>{s.title}</strong> — {s.desc}
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-
-                {/* Restore indicator */}
-                {!filesRestored && (
-                  <div className="mb-3 p-2.5 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center gap-2 animate-fade-down">
-                    <span className="spinner-xs" />
-                    <span className="text-[11px] text-indigo-600 font-medium">Memulihkan file yang tersimpan...</span>
-                  </div>
-                )}
-
-                {/* File Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
-                  <FileCard label="File BLC" description="Data sinkronisasi produksi" file={blcFile} onFile={handleBlcFile} validation={clientErrors.blc} />
-                  <FileCard label="File Stuffing List" description="Data utama yang akan diubah" file={stuffingFile} onFile={handleStuffingFile} validation={clientErrors.stuffing} />
-                  <FileCard label="File Daily Inspection" description="Data referensi inspeksi" file={inspectionFile} onFile={handleInspectionFile} validation={clientErrors.inspection} />
-                </div>
-
-                {/* Status Message */}
-                {message && (
-                  <div className={`status-message ${status === 'processing' ? 'status-message-warning' : status === 'success' ? 'status-message-success' : 'status-message-error'}`}>
-                    <div className="flex items-center gap-2">
-                      {status === 'processing' && <span className="spinner-xs" />}
-                      {status === 'success' && (
-                        <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                        </svg>
-                      )}
-                      {status === 'error' && (
-                        <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-                        </svg>
-                      )}
-                      <span>{message}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Report */}
-                {report && <ProcessingReport report={report} warnings={warnings} />}
-
-                {/* Actions */}
-                <div className="flex items-center justify-center gap-3 mt-5">
-                  <button
-                    onClick={handleProcess}
-                    disabled={!allFilesSelected || status === 'processing' || hasClientErrors}
-                    className="btn-primary"
-                  >
-                    {status === 'processing' ? (
-                      <><span className="spinner" /> Memproses...</>
-                    ) : (
-                      <>
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" />
-                        </svg>
-                        Proses Sinkronisasi Data
-                      </>
-                    )}
-                  </button>
-
-                  {status !== 'idle' && status !== 'processing' && (
-                    <button onClick={handleReset} className="btn-ghost">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
-                      </svg>
-                      Reset
-                    </button>
-                  )}
-                </div>
-
-                {/* File Summary */}
-                <div className="mt-6 card">
-                  <div className="card-header">
-                    <h3 className="card-title">Ringkasan File</h3>
-                    <span className="text-[10px] text-gray-400">Tiga file yang diunggah</span>
-                  </div>
-                  <div className="card-body">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {[
-                        { key: 'blc', label: 'BLC', file: blcFile },
-                        { key: 'stuffing', label: 'Stuffing List', file: stuffingFile },
-                        { key: 'inspection', label: 'Daily Inspection', file: inspectionFile },
-                      ].map(({ key, label, file }) => (
-                        <div key={key} className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50/50">
-                          <div className={`w-2 h-2 rounded-full shrink-0 ${file?.size ? 'bg-emerald-500' : 'bg-gray-300'}`} />
-                          <div className="min-w-0">
-                            <p className="font-medium text-gray-700 text-[12px]">{label}</p>
-                            <p className="text-gray-400 text-[11px] truncate-150">{file?.name || 'Belum dipilih'}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
+          <div className="mx-auto max-w-6xl p-4 sm:p-6">
+            {activePage === 'beranda' && <BerandaPage lastResult={lastResult} onNavigate={navigate} />}
+            {activePage === 'proses' && <ProsesPage summary={lastResult} setSummary={setLastResult} />}
+            {activePage === 'riwayat' && <RiwayatPage />}
+            {activePage === 'referensi' && <ReferensiPage />}
+            {activePage === 'panduan' && <PanduanPage />}
+            {activePage === 'pengaturan' && <PengaturanPage />}
           </div>
         </main>
       </div>
