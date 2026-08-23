@@ -81,10 +81,12 @@ function PlaceholderBadge() {
    ══════════════════════════════════════════════════════════════ */
 function ProsesPage({ summary, setSummary }) {
   const [jitFiles, setJitFiles] = useState([]);
+  const [stuffingFile, setStuffingFile] = useState(null);
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
   const [error, setError] = useState(null);
   const [isDragging, setIsDragging] = useState(null);
+  const [isDraggingStuffing, setIsDraggingStuffing] = useState(false);
 
   const validateFile = (file) => {
     const ext = file.name?.split('.').pop()?.toLowerCase();
@@ -108,16 +110,20 @@ function ProsesPage({ summary, setSummary }) {
 
   const removeFile = (name) => setJitFiles((prev) => prev.filter((f) => f.name !== name));
   const resetAll = () => {
-    setJitFiles([]); setStatus('idle'); setMessage(''); setError(null); setSummary(null);
+    setJitFiles([]); setStuffingFile(null);
+    setStatus('idle'); setMessage(''); setError(null); setSummary(null);
   };
 
   const handleProcess = async () => {
     setStatus('processing');
-    setMessage('Mengunggah & menggabungkan file JIT...');
+    setMessage(stuffingFile
+      ? 'Mengunggah file JIT + Stuffing List... menyuntikkan sheet Blc...'
+      : 'Mengunggah & menggabungkan file JIT...');
     setSummary(null);
     try {
       const fd = new FormData();
       jitFiles.forEach((f) => fd.append('jit', f));
+      if (stuffingFile) fd.append('stuffing', stuffingFile);
       const res = await fetch('/api/process-excel', { method: 'POST', body: fd });
       if (!res.ok) {
         let errMsg = `Server error (${res.status}).`;
@@ -138,7 +144,9 @@ function ProsesPage({ summary, setSummary }) {
       window.URL.revokeObjectURL(url);
 
       setStatus('success');
-      setMessage(`Selesai! ${jitFiles.length} file JIT digabung — file BLC terunduh.`);
+      setMessage(stuffingFile
+        ? `Selesai! Sheet "Blc" pada Stuffing List ditimpa (${summary?.nbOrders ?? '…'} order NB) — Stuffing_Terupdate.xlsx terunduh.`
+        : `Selesai! ${jitFiles.length} file JIT digabung — file BLC terunduh.`);
     } catch (err) {
       setStatus('error');
       setMessage(err.message || 'Terjadi kesalahan saat memproses file.');
@@ -148,11 +156,12 @@ function ProsesPage({ summary, setSummary }) {
   return (
     <div className="space-y-5">
       {/* Steps */}
-      <ol className="grid grid-cols-1 gap-3 md:grid-cols-3">
+      <ol className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
         {[
           { num: '1', title: 'Upload Multi File JIT', desc: 'Pilih semua laporan JIT sekaligus. Urutkan dari data paling lama (pagi) ke terbaru.' },
           { num: '2', title: 'Filter Order NB', desc: 'Hanya baris dengan OrdNo mengandung "NB" yang dipakai; order lain dibuang.' },
-          { num: '3', title: 'Gabungkan', desc: 'Order duplikat antar-file diambil dari file yang diunggah lebih dulu, lalu disusun jadi BLC.' },
+          { num: '3', title: 'Gabungkan → BLC', desc: 'Order duplikat antar-file diambil dari file yang diunggah lebih dulu, lalu disusun jadi BLC.' },
+          { num: '4', title: 'Opsional: Timpa Sheet Blc', desc: 'Jika Stuffing List diunggah, hasil BLC menimpa sheet "Blc" di dalamnya — output jadi Stuffing List terupdate.' },
         ].map((s) => (
           <li key={s.num} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
             <span className="mb-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">{s.num}</span>
@@ -182,6 +191,52 @@ function ProsesPage({ summary, setSummary }) {
         </div>
         <input id="jit-input" type="file" accept=".xlsx,.xls" multiple className="hidden"
                onChange={(e) => { if (e.target.files?.length) addFiles(Array.from(e.target.files)); e.target.value = ''; }} />
+      </div>
+
+      {/* Optional: Stuffing List upload */}
+      <div
+        role="button" tabIndex={0}
+        onClick={() => document.getElementById('stuffing-input')?.click()}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && document.getElementById('stuffing-input')?.click()}
+        onDragOver={(e) => { e.preventDefault(); setIsDraggingStuffing(true); }}
+        onDragLeave={() => setIsDraggingStuffing(false)}
+        onDrop={(e) => {
+          e.preventDefault(); setIsDraggingStuffing(false);
+          const f = e.dataTransfer.files?.[0];
+          if (!f) return;
+          const err = validateFile(f);
+          setError(err);
+          if (!err) setStuffingFile(f);
+        }}
+        className={`flex cursor-pointer items-center gap-4 rounded-xl border-2 border-dashed px-5 py-4 transition-colors
+          ${error ? 'border-red-300 bg-red-50/60'
+            : isDraggingStuffing ? 'border-indigo-400 bg-indigo-50'
+            : stuffingFile ? 'border-emerald-300 bg-emerald-50/50'
+            : 'border-gray-300 bg-white hover:border-indigo-400 hover:bg-indigo-50/40'}`}
+      >
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${stuffingFile ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
+          {stuffingFile ? '✓' : '+'}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-gray-800">
+            Stuffing List <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Opsional</span>
+          </p>
+          <p className="mt-0.5 truncate text-xs text-gray-500">
+            {stuffingFile
+              ? `${stuffingFile.name} · sheet "Blc" akan ditimpa hasil BLC`
+              : 'Isi jika ingin langsung menimpa sheet "Blc" di file Stuffing List — output menjadi file tersebut'}
+          </p>
+        </div>
+        {stuffingFile && (
+          <button type="button" onClick={(e) => { e.stopPropagation(); setStuffingFile(null); }} aria-label="Hapus Stuffing List"
+                  className="shrink-0 rounded-full px-2 py-0.5 text-xs text-gray-400 hover:bg-red-50 hover:text-red-600">✕</button>
+        )}
+        <input id="stuffing-input" type="file" accept=".xlsx,.xls" className="hidden"
+               onChange={(e) => {
+                 const f = e.target.files?.[0];
+                 if (f) { const err = validateFile(f); setError(err); if (!err) setStuffingFile(f); }
+                 e.target.value = '';
+               }} />
       </div>
 
       {error && (
@@ -222,8 +277,13 @@ function ProsesPage({ summary, setSummary }) {
 
       {/* Summary */}
       {summary && (
-        <dl className="grid grid-cols-3 gap-3">
-          {[['File JIT', summary.jitFiles], ['Order NB', summary.nbOrders], ['Periode', summary.period]].map(([label, value]) => (
+        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            ['File JIT', summary.jitFiles],
+            ['Order NB', summary.nbOrders],
+            ['Periode', summary.period],
+            ['Mode Output', summary.mode === 'stuffing' ? 'Stuffing List' : 'File BLC'],
+          ].map(([label, value]) => (
             <div key={label} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-center shadow-sm">
               <dt className="text-[10px] uppercase tracking-wide text-gray-400">{label}</dt>
               <dd className="text-lg font-bold text-gray-800">{value ?? '-'}</dd>
@@ -257,7 +317,7 @@ function ProsesPage({ summary, setSummary }) {
           ) : (
             <>
               <Icon d={ICONS.bolt} className="h-4 w-4" />
-              Gabungkan & Unduh BLC
+              {stuffingFile ? 'Timpa Sheet Blc & Unduh Stuffing' : 'Gabungkan & Unduh BLC'}
             </>
           )}
         </button>

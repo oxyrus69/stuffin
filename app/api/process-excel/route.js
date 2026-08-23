@@ -27,7 +27,8 @@ function findHeaderRow(aoa, keys) {
 /**
  * Extract the data rows from one JIT workbook.
  * Handles repeated headers / title rows inside the sheet.
- * Returns { header, rows } or null when no production-report table is found.
+ * Returns { header, rows, sheetName, period } — period is a "YYYY M"
+ * string found near the top of the source sheet (may be null).
  */
 function extractJitRows(workbook) {
   const HEADER_KEYS = ['ordno', 'styleno'];
@@ -37,6 +38,15 @@ function extractJitRows(workbook) {
     const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
     const hdrIdx = findHeaderRow(aoa, HEADER_KEYS);
     if (hdrIdx < 0) continue;
+
+    // Detect period cell like "2026 7" ABOVE the header row
+    let period = null;
+    for (let i = 0; i < hdrIdx && !period; i++) {
+      for (const cell of aoa[i] || []) {
+        const m = String(cell ?? '').trim().match(/^(\d{4})\s+(\d{1,2})$/);
+        if (m) { period = `${m[1]} ${Number(m[2])}`; break; }
+      }
+    }
 
     const header = aoa[hdrIdx].map((h) => (isBlank(h) ? '' : String(h).trim()));
     const width = Math.max(header.length, ...aoa.slice(hdrIdx + 1).map((r) => (r ? r.length : 0)));
@@ -48,7 +58,7 @@ function extractJitRows(workbook) {
       if (typeof row[0] === 'string' && /^ordno/i.test(norm(row[0]))) continue;
       rows.push(Array.from({ length: width }, (_, j) => row[j] ?? null));
     }
-    if (rows.length > 0) return { header, rows, sheetName: sn };
+    if (rows.length > 0) return { header, rows, sheetName: sn, period };
   }
   return null;
 }
@@ -61,8 +71,10 @@ export async function POST(request) {
     const XLSX = await import('xlsx');
     const formData = await request.formData();
 
-    /* ─── Validate input: multiple JIT files ─── */
+    /* ─── Validate input: multiple JIT files (+ optional stuffing) ─── */
     const jitEntries = formData.getAll('jit').filter((f) => f && f.size > 0);
+    const stuffingEntry = formData.get('stuffing');
+    const hasStuffing = stuffingEntry && stuffingEntry.size > 0;
     if (jitEntries.length === 0) {
       return NextResponse.json(
         { error: 'Minimal 1 file "Data JIT" wajib diunggah.' },
@@ -80,6 +92,7 @@ export async function POST(request) {
     let mergedHeader = null;
     const rows = [];
     const seenOrdNo = new Set(); // OrdNo -> first (earliest uploaded) occurrence wins
+    const extractedPeriods = []; // per uploaded JIT file, in upload order
 
     for (const file of jitEntries) {
       let wb;
@@ -95,6 +108,7 @@ export async function POST(request) {
         warnings.push(`File "${file.name}": tabel produksi (header OrdNo/StyleNo) tidak ditemukan — dilewati.`);
         continue;
       }
+      extractedPeriods.push(extracted.period);
 
       if (!mergedHeader) {
         mergedHeader = extracted.header.slice();
@@ -131,6 +145,22 @@ export async function POST(request) {
           keptRows++;
         }
       }
+      // Detect duplicates WITHIN a single file (kept: first occurrence)
+      const ordSeenInFile = new Set();
+      let inFileDupes = 0;
+      for (const srcRow of extracted.rows) {
+        const ordNo = ordColSrc >= 0 ? String(srcRow[ordColSrc] ?? '').trim() : '';
+        if (/NB/i.test(ordNo)) {
+          if (ordSeenInFile.has(ordNo)) inFileDupes++;
+          else ordSeenInFile.add(ordNo);
+        }
+      }
+      if (inFileDupes > 0) {
+        warnings.push(`"${file.name}": ${inFileDupes} order NB duplikat ditemukan di dalam file — kemunculan pertama yang dipakai.`);
+      }
+      if (extracted.period) {
+        warnings.push(`"${file.name}": periode terdeteksi "${extracted.period}".`);
+      }
       warnings.push(`"${file.name}" (${extracted.sheetName}): ${keptRows} baris NB diambil.`);
     }
 
@@ -143,14 +173,26 @@ export async function POST(request) {
 
     /* ─── STEP 3: build the final BLC sheet ───
        Same structure as "BLC HDU 8.22 PAGI.xlsx":
-       row0 title · row2 period "YYYY M" · row3 total rows · row4 header · data */
+       row0 title · row2 period "YYYY M" · row3 total rows · row4 header · data.
+       Period follows the source JIT data's own period cell ("2026 7"),
+       falling back to the current month when none is found.
+       Row-count cell follows the legacy convention: TOTAL physical rows
+       of the sheet (e.g. reference writes 1298 for ±1293 data rows,
+       i.e. dataRows + 5). */
     const now = new Date();
-    const period = `${now.getFullYear()} ${now.getMonth() + 1}`;
+    const fallbackPeriod = `${now.getFullYear()} ${now.getMonth() + 1}`;
+    let period =
+      jitEntries.map((_, k) => extractedPeriods[k]).find(Boolean) || null;
+    if (!period) {
+      period = fallbackPeriod;
+      warnings.push(`Periode tidak ditemukan di file JIT — memakai bulan berjalan "${fallbackPeriod}".`);
+    }
+    const totalRowCount = rows.length + 5; // title + blank + period + count + header + data
     const aoa = [
       ['Production Report By Order'],
       [],
       [period],
-      [rows.length],
+      [totalRowCount],
       mergedHeader,
       ...rows,
     ];
@@ -160,14 +202,50 @@ export async function POST(request) {
       e: { r: aoa.length - 1, c: Math.max(mergedHeader.length - 1, 0) },
     });
 
-    const wbOut = XLSX.utils.book_new();
-    const sheetName = `BLC HDU ${now.getMonth() + 1}.${String(now.getDate()).padStart(2, '0')} PAGI`;
-    XLSX.utils.book_append_sheet(wbOut, blcWs, sheetName.slice(0, 31));
+    /* ─── STEP 4 (optional): inject into Stuffing List sheet 'Blc' ───
+       When a Stuffing List is uploaded, the merged BLC table REPLACES
+       the sheet named 'Blc' in that workbook; all other sheets and the
+       rest of the workbook are preserved untouched. Output = the
+       updated Stuffing List. Otherwise output = standalone BLC file. */
+    let wbOut;
+    let outName;
+    let outputMode;
+
+    if (hasStuffing) {
+      let wbStuffing;
+      try {
+        wbStuffing = XLSX.read(Buffer.from(await stuffingEntry.arrayBuffer()), { type: 'buffer' });
+      } catch (e) {
+        return NextResponse.json(
+          { error: `File Stuffing List gagal dibaca: ${e.message}` },
+          { status: 400 }
+        );
+      }
+      const blcTargetName =
+        wbStuffing.SheetNames.find((n) => n.trim().toLowerCase() === 'blc') || 'Blc';
+      if (wbStuffing.Sheets[blcTargetName]) {
+        delete wbStuffing.Sheets[blcTargetName];
+        wbStuffing.SheetNames = wbStuffing.SheetNames.filter((n) => n !== blcTargetName);
+      }
+      wbStuffing.Sheets[blcTargetName] = blcWs;
+      const nbIdx = wbStuffing.SheetNames.indexOf('NB ORDER');
+      wbStuffing.SheetNames.splice(nbIdx + 1 || wbStuffing.SheetNames.length, 0, blcTargetName);
+
+      wbOut = wbStuffing;
+      outName = 'Stuffing_Terupdate.xlsx';
+      outputMode = 'stuffing';
+      warnings.push(`Sheet "${blcTargetName}" pada Stuffing List ditimpa (${rows.length} baris NB).`);
+    } else {
+      wbOut = XLSX.utils.book_new();
+      const sheetName = `BLC HDU ${now.getMonth() + 1}.${String(now.getDate()).padStart(2, '0')} PAGI`;
+      XLSX.utils.book_append_sheet(wbOut, blcWs, sheetName.slice(0, 31));
+      outName = `BLC HDU ${now.getMonth() + 1}.${String(now.getDate()).padStart(2, '0')}.xlsx`;
+      outputMode = 'blc';
+    }
 
     const outputBuffer = XLSX.write(wbOut, { type: 'buffer', bookType: 'xlsx' });
 
     /* ─── Output as direct download ─── */
-    const outName = `BLC HDU ${now.getMonth() + 1}.${String(now.getDate()).padStart(2, '0')}.xlsx`;
     return new Response(outputBuffer, {
       status: 200,
       headers: {
@@ -179,6 +257,8 @@ export async function POST(request) {
             jitFiles: jitEntries.length,
             nbOrders: rows.length,
             period,
+            mode: outputMode,
+            stuffingName: hasStuffing ? stuffingEntry.name : null,
           })
         ),
       },
