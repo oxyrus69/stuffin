@@ -16,6 +16,46 @@ function isBlank(v) {
   return v === null || v === undefined || String(v).trim() === '';
 }
 
+/**
+ * Parse uploaded workbook bytes into a SheetJS workbook.
+ * Handles two kinds of ".xls" inputs:
+ *   1. Real spreadsheets — zip (.xlsx, "PK") or OLE2 binary (.xls, d0cf11e0…)
+ *   2. HTML-table exports from Chinese ERP systems, GBK/GB2312-encoded.
+ *      Reading those as binary mangles Chinese text (mojibake like "ɫ"),
+ *      so they are decoded as text with the correct charset first.
+ * Returns { wb, textPeriod } — textPeriod is the "YYYY M" found in the
+ * HTML <h6> banner (null for binary workbooks).
+ */
+function parseWorkbookBuffer(buf) {
+  const head = buf.subarray(0, 8).toString('hex');
+  const isBinary = head.startsWith('504b') /* PK  = xlsx */ ||
+    head.startsWith('d0cf11e0') /* OLE2 = legacy xls */;
+  if (isBinary) return { wb: XLSX.read(buf, { type: 'buffer' }), textPeriod: null };
+
+  // Text/HTML export: pick charset from meta tag, else sniff
+  const asciiHead = buf.subarray(0, 2048).toString('latin1');
+  const charsetMatch = asciiHead.match(/charset=["']?([\w-]+)/i);
+  let text;
+  const declared = (charsetMatch?.[1] || '').toLowerCase();
+  if (/^gb/i.test(declared)) {
+    text = new TextDecoder('gbk').decode(buf);
+  } else if (declared === 'utf-8' || declared === 'utf8') {
+    text = buf.toString('utf8');
+  } else {
+    try {
+      text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+    } catch {
+      text = new TextDecoder('gbk').decode(buf); // Chinese default
+    }
+  }
+
+  // Period banner, e.g. <h6 align=center> 2026 7</h6>
+  const pm = text.match(/<h[1-6][^>]*>\s*(\d{4})\s+(\d{1,2})\s*</i);
+  const textPeriod = pm ? `${pm[1]} ${Number(pm[2])}` : null;
+
+  return { wb: XLSX.read(text, { type: 'string' }), textPeriod };
+}
+
 /** Find the header row containing ALL given keywords (e.g. ['ordno','styleno']). */
 function findHeaderRow(aoa, keys) {
   for (let i = 0; i < Math.min(aoa.length, 20); i++) {
@@ -96,8 +136,11 @@ export async function POST(request) {
 
     for (const file of jitEntries) {
       let wb;
+      let textPeriod = null;
       try {
-        wb = XLSX.read(Buffer.from(await file.arrayBuffer()), { type: 'buffer' });
+        const parsed = parseWorkbookBuffer(Buffer.from(await file.arrayBuffer()));
+        wb = parsed.wb;
+        textPeriod = parsed.textPeriod;
       } catch (e) {
         warnings.push(`File "${file.name}" gagal dibaca (${e.message}) — dilewati.`);
         continue;
@@ -109,8 +152,8 @@ export async function POST(request) {
         continue;
       }
 
-      // Period priority: in-file "YYYY M" cell -> filename pattern (e.g. 0726.XLS = Jul 2026)
-      let filePeriod = extracted.period;
+      // Period priority: in-file "YYYY M" (cell or HTML banner) -> filename pattern
+      let filePeriod = extracted.period || textPeriod;
       if (!filePeriod) {
         const fm = String(file.name || '').match(/(\d{2})(\d{2})\.(xlsx|xls)$/i);
         if (fm) {
