@@ -108,7 +108,17 @@ export async function POST(request) {
         warnings.push(`File "${file.name}": tabel produksi (header OrdNo/StyleNo) tidak ditemukan — dilewati.`);
         continue;
       }
-      extractedPeriods.push(extracted.period);
+
+      // Period priority: in-file "YYYY M" cell -> filename pattern (e.g. 0726.XLS = Jul 2026)
+      let filePeriod = extracted.period;
+      if (!filePeriod) {
+        const fm = String(file.name || '').match(/(\d{2})(\d{2})\.(xlsx|xls)$/i);
+        if (fm) {
+          filePeriod = `${2000 + Number(fm[2])} ${Number(fm[1])}`;
+          warnings.push(`"${file.name}": periode "${filePeriod}" diambil dari nama file.`);
+        }
+      }
+      extractedPeriods.push(filePeriod);
 
       if (!mergedHeader) {
         mergedHeader = extracted.header.slice();
