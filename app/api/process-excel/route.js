@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import * as XLSX from 'xlsx';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -68,7 +69,6 @@ function extractJitRows(workbook) {
    ══════════════════════════════════════════════════════════════ */
 export async function POST(request) {
   try {
-    const XLSX = await import('xlsx');
     const formData = await request.formData();
 
     /* ─── Validate input: multiple JIT files (+ optional stuffing) ─── */
