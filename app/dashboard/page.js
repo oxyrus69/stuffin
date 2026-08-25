@@ -164,7 +164,7 @@ function ProsesPage({ summary, setSummary }) {
       <ol className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
         {[
           { num: '1', title: 'Upload Multi File JIT', desc: 'Pilih semua laporan JIT sekaligus. Urutkan dari data paling lama (pagi) ke terbaru.' },
-          { num: '2', title: 'Filter Order NB', desc: 'Order dengan pola "U" + 2 digit (U07NB…, U07N…, U07BC…) dipakai; lini lain (PU/UV/PDU) dibuang.' },
+          { num: '2', title: 'Filter Order NB', desc: 'Order dengan pola "U" + 2 digit + "N" (U07NB…, U07N…) dipakai; lini BC (U07BC…) dan PU/UV/PDU dibuang.' },
           { num: '3', title: 'Gabungkan → BLC', desc: 'Order duplikat antar-file diambil dari file yang diunggah lebih dulu, lalu disusun jadi BLC.' },
           { num: '4', title: 'Opsional: Timpa Sheet Blc', desc: 'Jika Stuffing List diunggah, hasil BLC menimpa sheet "Blc" di dalamnya — output jadi Stuffing List terupdate.' },
         ].map((s) => (
