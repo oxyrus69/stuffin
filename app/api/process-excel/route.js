@@ -331,6 +331,13 @@ export async function POST(request) {
       try {
         wbStuffing = XLSX.read(Buffer.from(await stuffingEntry.arrayBuffer()), { type: 'buffer' });
       } catch (e) {
+        const head = Buffer.from(await stuffingEntry.slice(0, 8).arrayBuffer()).toString('hex');
+        if (/password/i.test(e.message) || head.startsWith('d0cf11e0')) {
+          return NextResponse.json(
+            { error: 'File Stuffing List TERENKRIPSI (Excel dengan password). Buka di Excel → Save As → .xlsx tanpa proteksi, lalu unggah ulang.' },
+            { status: 400 }
+          );
+        }
         return NextResponse.json(
           { error: `File Stuffing List gagal dibaca: ${e.message}` },
           { status: 400 }
