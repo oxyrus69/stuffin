@@ -184,7 +184,7 @@ export async function POST(request) {
       const ordColSrc = extracted.header.findIndex((h) => norm(h) === 'ordno');
       // Valid NB order: contains "NB" AND starts with "U" (e.g. U07NB0001).
       // Prefixed forms like PU07NB… are different product lines — discarded.
-      const isNbOrder = (ordNo) => /NB/i.test(ordNo) && /^u/i.test(ordNo);
+      const isNbOrder = (ordNo) => /^U\d{2}/.test(ordNo);
       let keptRows = 0;
       for (const srcRow of extracted.rows) {
         const ordNo = ordColSrc >= 0 ? String(srcRow[ordColSrc] ?? '').trim() : '';

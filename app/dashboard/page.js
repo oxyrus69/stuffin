@@ -164,7 +164,7 @@ function ProsesPage({ summary, setSummary }) {
       <ol className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
         {[
           { num: '1', title: 'Upload Multi File JIT', desc: 'Pilih semua laporan JIT sekaligus. Urutkan dari data paling lama (pagi) ke terbaru.' },
-          { num: '2', title: 'Filter Order NB', desc: 'Hanya baris dengan OrdNo mengandung "NB" yang dipakai; order lain dibuang.' },
+          { num: '2', title: 'Filter Order NB', desc: 'Order dengan pola "U" + 2 digit (U07NB…, U07N…, U07BC…) dipakai; lini lain (PU/UV/PDU) dibuang.' },
           { num: '3', title: 'Gabungkan → BLC', desc: 'Order duplikat antar-file diambil dari file yang diunggah lebih dulu, lalu disusun jadi BLC.' },
           { num: '4', title: 'Opsional: Timpa Sheet Blc', desc: 'Jika Stuffing List diunggah, hasil BLC menimpa sheet "Blc" di dalamnya — output jadi Stuffing List terupdate.' },
         ].map((s) => (
@@ -427,7 +427,7 @@ function ReferensiPage() {
         <p className="mb-3 text-xs leading-relaxed text-gray-500">
           Sistem mencari baris header berisi <code className="rounded bg-gray-100 px-1 font-mono text-[11px]">OrdNo</code> dan{' '}
           <code className="rounded bg-gray-100 px-1 font-mono text-[11px]">StyleNo</code> di sheet mana pun,
-          lalu hanya menyimpan baris dengan OrdNo mengandung <strong>NB</strong>.
+          lalu hanya menyimpan baris dengan OrdNo berpola <strong>U + 2 digit</strong> (mis. U07NB0001, U07N2052).
         </p>
         <div className="flex flex-wrap gap-1.5">
           {JIT_COLUMNS.map((c) => (
