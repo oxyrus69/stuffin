@@ -182,10 +182,13 @@ export async function POST(request) {
       }
 
       const ordColSrc = extracted.header.findIndex((h) => norm(h) === 'ordno');
+      // Valid NB order: contains "NB" AND starts with "U" (e.g. U07NB0001).
+      // Prefixed forms like PU07NB… are different product lines — discarded.
+      const isNbOrder = (ordNo) => /NB/i.test(ordNo) && /^u/i.test(ordNo);
       let keptRows = 0;
       for (const srcRow of extracted.rows) {
         const ordNo = ordColSrc >= 0 ? String(srcRow[ordColSrc] ?? '').trim() : '';
-        if (/NB/i.test(ordNo)) {
+        if (isNbOrder(ordNo)) {
           if (seenOrdNo.has(ordNo)) continue; // earlier file already has this order
           const aligned = new Array(mergedHeader.length).fill(null);
           if (colMap) {
@@ -203,7 +206,7 @@ export async function POST(request) {
       let inFileDupes = 0;
       for (const srcRow of extracted.rows) {
         const ordNo = ordColSrc >= 0 ? String(srcRow[ordColSrc] ?? '').trim() : '';
-        if (/NB/i.test(ordNo)) {
+        if (isNbOrder(ordNo)) {
           if (ordSeenInFile.has(ordNo)) inFileDupes++;
           else ordSeenInFile.add(ordNo);
         }
@@ -224,14 +227,15 @@ export async function POST(request) {
       );
     }
 
-    /* ─── STEP 3: build the final BLC sheet ───
-       Same structure as "BLC HDU 8.22 PAGI.xlsx":
-       row0 title · row2 period "YYYY M" · row3 total rows · row4 header · data.
-       Period follows the source JIT data's own period cell ("2026 7"),
-       falling back to the current month when none is found.
-       Row-count cell follows the legacy convention: TOTAL physical rows
-       of the sheet (e.g. reference writes 1298 for ±1293 data rows,
-       i.e. dataRows + 5). */
+    /* ─── STEP 3: build the final BLC sheet (formatted) ───
+       Layout mirrors "BLC HDU 8.22 PAGI.xlsx":
+         row1 title "Production Report By Order" — Calibri 24, merged across,
+         row3 period "YYYY M" directly below the title (blue, bold, centered),
+         row4 total row count (dataRows + 5 legacy convention),
+         row5 header (bold, thin gray borders, centered),
+         row6+ data with thin borders, auto-fitted column widths.
+       Period follows the source JIT data ("2026 7" banner/cell/filename),
+       falling back to the current month when none is found. */
     const now = new Date();
     const fallbackPeriod = `${now.getFullYear()} ${now.getMonth() + 1}`;
     let period =
@@ -241,30 +245,88 @@ export async function POST(request) {
       warnings.push(`Periode tidak ditemukan di file JIT — memakai bulan berjalan "${fallbackPeriod}".`);
     }
     const totalRowCount = rows.length + 5; // title + blank + period + count + header + data
-    const aoa = [
-      ['Production Report By Order'],
-      [],
-      [period],
-      [totalRowCount],
-      mergedHeader,
-      ...rows,
-    ];
-    const blcWs = XLSX.utils.aoa_to_sheet(aoa);
-    blcWs['!ref'] = XLSX.utils.encode_range({
-      s: { r: 0, c: 0 },
-      e: { r: aoa.length - 1, c: Math.max(mergedHeader.length - 1, 0) },
-    });
+
+    /* Populate an ExcelJS worksheet with the formatted BLC table. */
+    const THIN_GRAY = { style: 'thin', color: { argb: 'FF7F7F7F' } };
+    const ALL_THIN = { top: THIN_GRAY, bottom: THIN_GRAY, left: THIN_GRAY, right: THIN_GRAY };
+    const BLUE_BOLD = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF1F4E79' } };
+
+    function applyBlcContent(ws) {
+      const lastCol = Math.max(mergedHeader.length, 1);
+
+      // Row 1 — title, Calibri 24, merged & centered
+      ws.mergeCells(1, 1, 1, lastCol);
+      const titleCell = ws.getCell(1, 1);
+      titleCell.value = 'Production Report By Order';
+      titleCell.font = { name: 'Calibri', size: 24 };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(1).height = 34;
+
+      // Row 3 — year & month right below the title
+      ws.mergeCells(3, 1, 3, lastCol);
+      const periodCell = ws.getCell(3, 1);
+      periodCell.value = period;
+      periodCell.font = BLUE_BOLD;
+      periodCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      // Row 4 — legacy total row count
+      const countCell = ws.getCell(4, 1);
+      countCell.value = totalRowCount;
+      countCell.font = BLUE_BOLD;
+      countCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      // Row 5 — header row
+      const headerRow = ws.getRow(5);
+      mergedHeader.forEach((h, j) => {
+        const c = headerRow.getCell(j + 1);
+        c.value = h || null;
+        c.font = { name: 'Calibri', size: 11, bold: true };
+        c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        c.border = ALL_THIN;
+      });
+      headerRow.height = 18;
+
+      // Data rows
+      rows.forEach((dataRow, i) => {
+        const r = ws.getRow(i + 6);
+        for (let j = 0; j < mergedHeader.length; j++) {
+          const c = r.getCell(j + 1);
+          c.value = dataRow[j] ?? null;
+          c.border = ALL_THIN;
+        }
+      });
+
+      // Auto-fit column widths (clamped)
+      for (let j = 0; j < mergedHeader.length; j++) {
+        let maxLen = String(mergedHeader[j] ?? '').length;
+        for (const dataRow of rows) {
+          const v = dataRow[j];
+          if (v !== null && v !== undefined) {
+            const l = typeof v === 'number' ? String(v).length : String(v).length;
+            if (l > maxLen) maxLen = l;
+          }
+        }
+        const col = ws.getColumn(j + 1);
+        col.width = Math.min(Math.max(maxLen + 2, 8), 40);
+      }
+    }
+
+    const ExcelJS = (await import('exceljs')).default;
 
     /* ─── STEP 4 (optional): inject into Stuffing List sheet 'Blc' ───
-       When a Stuffing List is uploaded, the merged BLC table REPLACES
-       the sheet named 'Blc' in that workbook; all other sheets and the
-       rest of the workbook are preserved untouched. Output = the
-       updated Stuffing List. Otherwise output = standalone BLC file. */
-    let wbOut;
+       Two-pass approach:
+         Pass 1 (SheetJS): rewrite workbook structure — replace sheet 'Blc'
+           content, keep every other sheet + their order intact.
+         Pass 2 (ExcelJS): reopen the staged file and apply rich formatting
+           (fonts, merges, borders, column widths) ONLY to sheet 'Blc'.
+       Output = the updated Stuffing List. Without stuffing, the standalone
+       BLC file is built directly with ExcelJS. */
+    let outputBuffer;
     let outName;
     let outputMode;
 
     if (hasStuffing) {
+      // ── Pass 1: structural edit with SheetJS (order-safe)
       let wbStuffing;
       try {
         wbStuffing = XLSX.read(Buffer.from(await stuffingEntry.arrayBuffer()), { type: 'buffer' });
@@ -276,27 +338,52 @@ export async function POST(request) {
       }
       const blcTargetName =
         wbStuffing.SheetNames.find((n) => n.trim().toLowerCase() === 'blc') || 'Blc';
+      const plainAoA = [
+        ['Production Report By Order'],
+        [],
+        [period],
+        [totalRowCount],
+        mergedHeader,
+        ...rows,
+      ];
+      const plainWs = XLSX.utils.aoa_to_sheet(plainAoA);
+      plainWs['!ref'] = XLSX.utils.encode_range({
+        s: { r: 0, c: 0 },
+        e: { r: plainAoA.length - 1, c: Math.max(mergedHeader.length - 1, 0) },
+      });
       if (wbStuffing.Sheets[blcTargetName]) {
         delete wbStuffing.Sheets[blcTargetName];
         wbStuffing.SheetNames = wbStuffing.SheetNames.filter((n) => n !== blcTargetName);
       }
-      wbStuffing.Sheets[blcTargetName] = blcWs;
+      wbStuffing.Sheets[blcTargetName] = plainWs;
       const nbIdx = wbStuffing.SheetNames.indexOf('NB ORDER');
       wbStuffing.SheetNames.splice(nbIdx + 1 || wbStuffing.SheetNames.length, 0, blcTargetName);
 
-      wbOut = wbStuffing;
+      const staged = XLSX.write(wbStuffing, { type: 'buffer', bookType: 'xlsx' });
+
+      // ── Pass 2: styling pass with ExcelJS
+      const wbStyled = new ExcelJS.Workbook();
+      await wbStyled.xlsx.load(staged);
+      const blcWs = wbStyled.getWorksheet(blcTargetName);
+      if (!blcWs) {
+        return NextResponse.json({ error: 'Sheet "Blc" hilang setelah penyusunan ulang.' }, { status: 500 });
+      }
+      applyBlcContent(blcWs);
+
+      outputBuffer = Buffer.from(await wbStyled.xlsx.writeBuffer());
       outName = 'Stuffing_Terupdate.xlsx';
       outputMode = 'stuffing';
-      warnings.push(`Sheet "${blcTargetName}" pada Stuffing List ditimpa (${rows.length} baris NB).`);
+      warnings.push(`Sheet "${blcTargetName}" pada Stuffing List ditimpa (${rows.length} baris NB, berformat).`);
     } else {
-      wbOut = XLSX.utils.book_new();
-      const sheetName = `BLC HDU ${now.getMonth() + 1}.${String(now.getDate()).padStart(2, '0')} PAGI`;
-      XLSX.utils.book_append_sheet(wbOut, blcWs, sheetName.slice(0, 31));
+      const wbOut = new ExcelJS.Workbook();
+      const blcWs = wbOut.addWorksheet(
+        `BLC HDU ${now.getMonth() + 1}.${String(now.getDate()).padStart(2, '0')} PAGI`.slice(0, 31)
+      );
+      applyBlcContent(blcWs);
+      outputBuffer = Buffer.from(await wbOut.xlsx.writeBuffer());
       outName = `BLC HDU ${now.getMonth() + 1}.${String(now.getDate()).padStart(2, '0')}.xlsx`;
       outputMode = 'blc';
     }
-
-    const outputBuffer = XLSX.write(wbOut, { type: 'buffer', bookType: 'xlsx' });
 
     /* ─── Output as direct download ─── */
     return new Response(outputBuffer, {

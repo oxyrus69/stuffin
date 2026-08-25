@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { processBlc } from '../../lib/blcClient';
 
 /* ══════════════════════════════════════════════════════════════
    Icons (inline, heroicons outline)
@@ -116,38 +117,42 @@ function ProsesPage({ summary, setSummary }) {
 
   const handleProcess = async () => {
     setStatus('processing');
-    setMessage(stuffingFile
-      ? 'Mengunggah file JIT + Stuffing List... menyuntikkan sheet Blc...'
-      : 'Mengunggah & menggabungkan file JIT...');
     setSummary(null);
-    try {
-      const fd = new FormData();
-      jitFiles.forEach((f) => fd.append('jit', f));
-      if (stuffingFile) fd.append('stuffing', stuffingFile);
-      const res = await fetch('/api/process-excel', { method: 'POST', body: fd });
-      if (!res.ok) {
-        let errMsg = `Server error (${res.status}).`;
-        try { const j = await res.json(); if (j.error) errMsg = j.error; } catch {}
-        throw new Error(errMsg);
-      }
-      const reportHeader = res.headers.get('X-Process-Report');
-      if (reportHeader) { try { setSummary(JSON.parse(decodeURIComponent(reportHeader))); } catch {} }
+    setMessage(stuffingFile
+      ? 'Memproses di browser: menyusun & memformat sheet Blc...'
+      : 'Memproses di browser: menggabungkan file JIT...');
 
-      const blob = await res.blob();
-      const cd = res.headers.get('Content-Disposition') || '';
-      const m = cd.match(/filename="?([^";]+)"?/);
+    try {
+      const { data, filename, report, warnings } = await processBlc({
+        jitFiles: await Promise.all(jitFiles.map(async (f) => ({
+          name: f.name,
+          bytes: new Uint8Array(await f.arrayBuffer()),
+        }))),
+        stuffingFile: stuffingFile
+          ? { name: stuffingFile.name, bytes: new Uint8Array(await stuffingFile.arrayBuffer()) }
+          : null,
+        onProgress: (msg) => setMessage(msg),
+      });
+
+      setSummary(report);
+      if (warnings?.length) console.info('[BLC Processor]', warnings);
+
+      const blob = new Blob([data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = m ? m[1] : 'BLC_HDU.xlsx';
+      a.download = filename;
       document.body.appendChild(a); a.click(); a.remove();
       window.URL.revokeObjectURL(url);
 
       setStatus('success');
       setMessage(stuffingFile
-        ? `Selesai! Sheet "Blc" pada Stuffing List ditimpa (${summary?.nbOrders ?? '…'} order NB) — Stuffing_Terupdate.xlsx terunduh.`
-        : `Selesai! ${jitFiles.length} file JIT digabung — file BLC terunduh.`);
+        ? `Selesai! Sheet "Blc" pada Stuffing List ditimpa (${report.nbOrders} order NB) — ${filename} terunduh.`
+        : `Selesai! ${jitFiles.length} file JIT digabung menjadi ${report.nbOrders} order NB — ${filename} terunduh.`);
     } catch (err) {
+      console.error(err);
       setStatus('error');
       setMessage(err.message || 'Terjadi kesalahan saat memproses file.');
     }
@@ -524,7 +529,11 @@ export default function Dashboard() {
 
   const navigate = (page) => { setActivePage(page); setMobileOpen(false); };
   const active = NAV_ITEMS.find((n) => n.id === activePage);
-  const today = new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
+  // Render date only after mount to keep server/client markup identical (avoids hydration errors)
+  const [today, setToday] = useState('');
+  useEffect(() => {
+    setToday(new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date()));
+  }, []);
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
