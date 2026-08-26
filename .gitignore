@@ -48,9 +48,16 @@ Desktop.ini
 *.tmp
 *.bak
 _*.js
+_*.mjs
+_*.py
 _out*.xlsx
-
-# excel processing artifacts & test outputs
+_akum*.xlsx
+_v9*.xlsx
+test-*.mjs
+test-*.js
+test_out*.xlsx
+final_test*.xlsx
+_lo_check/
 test-results/
 
 # local business data (JIT mentah & referensi internal) — jangan ikut ke repo publik
