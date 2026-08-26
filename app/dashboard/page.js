@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { processBlc } from '../../lib/blcClient';
-import { fillAkumulasi, parseDailyFile, parseWorkbookAny, detectKind } from '../../lib/akumulasiClient';
+import { fillAkumulasi, parseDailyFile, parseWorkbookAny, detectKind, diagnoseFile } from '../../lib/akumulasiClient';
 
 /* ══════════════════════════════════════════════════════════════
    Icons (inline, heroicons outline)
@@ -528,19 +528,22 @@ function AkumulasiPage() {
   const [files, setFiles] = useState({ ass: null, stt: null });
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
+  const [errorHelp, setErrorHelp] = useState(null);
+  const [showTip, setShowTip] = useState(false);
   const [summary, setSummary] = useState(null);
 
   const pick = (key) => async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
     const ext = f.name.split('.').pop()?.toLowerCase();
-    if (ext !== 'xlsx' && ext !== 'xls') {
-      setStatus('error'); setMessage(`"${f.name}" harus .xlsx atau .xls`);
+    if (!['xlsx','xls','htm','html'].includes(ext)) {
+      setStatus('error'); setMessage(`Format tidak didukung.`);
+      setErrorHelp({ title: 'Format file', steps: ['Gunakan file .XLS / .XLSX hasil export sistem.', 'Jika file .XLS gagal, buka di Excel → Save As → Excel Workbook (*.xlsx).'] });
       e.target.value = '';
       return;
     }
     setFiles((p) => ({ ...p, [key]: f }));
-    setStatus('idle'); setMessage('');
+    setStatus('idle'); setMessage(''); setErrorHelp(null); setShowTip(false);
     e.target.value = '';
   };
 
@@ -549,34 +552,90 @@ function AkumulasiPage() {
   const handleProcess = async () => {
     if (!ready) return;
     setStatus('processing');
+    setErrorHelp(null);
+    setShowTip(false);
     setMessage('Memproses akumulasi di browser...');
     try {
       const read = async (f) => new Uint8Array(await f.arrayBuffer());
       // Auto-detect kind from line codes — protects against swapped uploads
       let sewParsed, assParsed;
       try {
-        sewParsed = parseDailyFile(parseWorkbookAny(read(files.stt)));
-        assParsed = parseDailyFile(parseWorkbookAny(read(files.ass)));
+        const [sttBytes, assBytes] = await Promise.all([read(files.stt), read(files.ass)]);
+        // parseDailyFile now accepts Uint8Array directly and handles both HTML and XLSX
+        sewParsed = parseDailyFile(sttBytes);
+        assParsed = parseDailyFile(assBytes);
+        // Fallback: also try via decoded text if initial parse gives 0 (legacy path)
+        if (sewParsed.lines.size === 0) {
+          const alt = parseDailyFile(parseWorkbookAny(sttBytes));
+          if (alt.lines.size > 0) sewParsed = alt;
+        }
+        if (assParsed.lines.size === 0) {
+          const alt = parseDailyFile(parseWorkbookAny(assBytes));
+          if (alt.lines.size > 0) assParsed = alt;
+        }
       } catch (e) {
         throw new Error(`Gagal membaca file: ${e.message}`);
       }
-      if (sewParsed.lines.size === 0 && assParsed.lines.size === 0) {
-        throw new Error(
-          'Tidak ada data line yang dikenali di kedua file. Pastikan file berisi tabel ' +
-          'dengan kolom "LineNo | Line | D1..D31" (format laporan ASS/STT harian).'
-        );
+      if (sewParsed.lines.size === 0 || assParsed.lines.size === 0) {
+        let isFrameset = false;
+        let rawDetail = '';
+        try {
+          const [sttBytes2, assBytes2] = await Promise.all([read(files.stt), read(files.ass)]);
+          const dStt = diagnoseFile(sttBytes2);
+          const dAss = diagnoseFile(assBytes2);
+          rawDetail = JSON.stringify({ stt: dStt, ass: dAss });
+          const frameHint = (d) => d.isFrameset && d.hasSheet001Ref;
+          isFrameset = frameHint(dStt) || frameHint(dAss);
+          // log detail to console for debug, not shown to user
+          console.warn('[Akumulasi diagnose]', { stt: dStt, ass: dAss });
+        } catch (e) {
+          rawDetail = e.message;
+        }
+        if (isFrameset) {
+          const err = new Error('File .XLS tidak bisa dibaca langsung.');
+          err.help = {
+            title: 'File tersimpan sebagai "Web Page"',
+            steps: [
+              'Buka file .XLS di Microsoft Excel',
+              'Pilih File → Save As',
+              'Ganti "Save as type" ke Excel Workbook (*.xlsx)',
+              'Simpan dan upload file .xlsx yang baru',
+            ],
+            note: 'Atau upload file sheet001.htm dari folder *_files jika ada.',
+          };
+          err.rawDetail = rawDetail;
+          throw err;
+        }
+        const err2 = new Error('Format tabel tidak dikenali.');
+        err2.help = {
+          title: 'Pastikan format ASS/STT',
+          steps: [
+            'Tabel harus punya kolom LineNo | Line | D1 … D31 + Total',
+            'Jangan ubah header atau hapus kolom',
+            'Jika export terbaru, coba Save As → .xlsx lalu upload ulang',
+          ],
+        };
+        err2.rawDetail = rawDetail;
+        throw err2;
       }
-      if (sewParsed.lines.size === 0) throw new Error('File pertama (Sewing) tidak berisi line yang dikenali.');
-      if (assParsed.lines.size === 0) throw new Error('File kedua (Assembling) tidak berisi line yang dikenali.');
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[Akumulasi] Sewing lines:', sewParsed.lines.size, '| Assembling lines:', assParsed.lines.size);
+      }
       const k1 = detectKind(sewParsed);
       const k2 = detectKind(assParsed);
       if (k1 === 'ass' && k2 === 'sew') {
         [sewParsed, assParsed] = [assParsed, sewParsed]; // swapped uploads: fix silently
       } else if (k1 !== 'sew' || k2 !== 'ass') {
-        throw new Error(
-          'File tidak dikenali: butuh satu file Sewing (line S01–S18/T02/T03) ' +
-          'dan satu file Assembling (line A01–A18).'
-        );
+        const err = new Error('Jenis file tidak sesuai.');
+        err.help = {
+          title: 'Butuh 1 file Sewing + 1 file Assembling',
+          steps: [
+            'File Sewing berisi line S01–S18 / T02 / T03 / IP',
+            'File Assembling berisi line A01–A18',
+            'Coba tukar posisi upload atau cek isi file di Excel',
+          ],
+        };
+        throw err;
       }
 
       setMessage('Mengunduh template akumulasi...');
@@ -595,11 +654,16 @@ function AkumulasiPage() {
       window.URL.revokeObjectURL(url);
 
       setStatus('success');
+      setErrorHelp(null);
+      setShowTip(false);
       setMessage(`Selesai! ${out.filledCells} sel output terisi pada ${out.weeksFound} blok minggu — akumulasi.xlsx terunduh.`);
     } catch (err) {
       console.error(err);
+      if (err.rawDetail) console.warn('[Akumulasi rawDetail]', err.rawDetail);
       setStatus('error');
       setMessage(err.message || 'Terjadi kesalahan saat memproses akumulasi.');
+      if (err.help) setErrorHelp(err.help);
+      else setErrorHelp({ title: 'Cek file', steps: ['Pastikan file tidak rusak', 'Coba buka di Excel lalu Save As → .xlsx'] });
     }
   };
 
@@ -634,24 +698,67 @@ function AkumulasiPage() {
             </span>
             <p className="text-sm font-semibold text-gray-800">{s.label}</p>
             <p className="truncate px-2 text-xs text-gray-500">{files[s.key]?.name || s.desc}</p>
-            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={pick(s.key)} />
+            <input type="file" accept=".xlsx,.xls,.htm,.html" className="hidden" onChange={pick(s.key)} />
           </label>
         ))}
       </div>
 
       {message && (
-        <div role="alert" className={`flex items-center gap-2.5 rounded-xl border px-4 py-3 text-sm ${
+        <div role="alert" className={`flex gap-2.5 rounded-xl border px-4 py-3 text-sm ${
           status === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
           : status === 'error' ? 'border-red-200 bg-red-50 text-red-700'
           : 'border-indigo-200 bg-indigo-50 text-indigo-800'}`}>
           {status === 'processing' && (
-            <svg className="h-4 w-4 animate-spin text-indigo-600" viewBox="0 0 24 24" fill="none">
+            <svg className="h-4 w-4 shrink-0 animate-spin text-indigo-600" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
             </svg>
           )}
-          {(status === 'success' || status === 'error') && <span>{status === 'success' ? '✅' : '⚠️'}</span>}
-          <span>{message}</span>
+          {(status === 'success' || status === 'error') && <span className="shrink-0">{status === 'success' ? '✅' : '⚠️'}</span>}
+          <span className="min-w-0 whitespace-pre-wrap break-words text-left">{message}</span>
+          {status === 'error' && errorHelp && (
+            <div className="group relative ml-auto shrink-0">
+              <button
+                type="button"
+                onMouseEnter={() => setShowTip(true)}
+                onMouseLeave={() => setShowTip(false)}
+                onClick={() => setShowTip((v) => !v)}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs font-bold text-red-600 ring-1 ring-red-200 hover:bg-red-50"
+                aria-label="Bantuan"
+              >
+                ?
+              </button>
+              {showTip && (
+                <div className="absolute right-0 top-8 z-10 w-72 rounded-xl border border-amber-200 bg-amber-50 p-3 text-left shadow-lg">
+                  <p className="text-xs font-semibold text-amber-800">{errorHelp.title}</p>
+                  <ol className="mt-1.5 list-decimal list-inside space-y-0.5 text-xs leading-relaxed text-amber-700">
+                    {errorHelp.steps.map((s, i) => (
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ol>
+                  {errorHelp.note && <p className="mt-2 text-xs italic text-amber-600">{errorHelp.note}</p>}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {status === 'error' && errorHelp && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex gap-3">
+            <span className="shrink-0 text-lg">💡</span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-amber-800">{errorHelp.title}</p>
+              <ol className="mt-1.5 list-decimal list-inside space-y-1 text-xs leading-relaxed text-amber-700">
+                {errorHelp.steps.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ol>
+              {errorHelp.note && <p className="mt-2 text-xs italic text-amber-600">{errorHelp.note}</p>}
+              <p className="mt-2 text-[11px] text-amber-600/80">Detail teknis tersimpan di Console (F12) untuk debugging.</p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -668,7 +775,7 @@ function AkumulasiPage() {
 
       <div className="flex items-center justify-end gap-3 pt-2">
         {ready && (
-          <button onClick={() => { setFiles({ ass: null, stt: null }); setStatus('idle'); setMessage(''); setSummary(null); }}
+          <button onClick={() => { setFiles({ ass: null, stt: null }); setStatus('idle'); setMessage(''); setErrorHelp(null); setShowTip(false); setSummary(null); }}
                   className="rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-600 hover:bg-gray-50">
             Reset
           </button>
