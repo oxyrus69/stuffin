@@ -227,6 +227,17 @@ export async function POST(request) {
       );
     }
 
+
+  /* Sort: highest U-code first (U12 top ... U01 bottom), stable within groups. */
+  const ordColMerged = mergedHeader.findIndex((h) => norm(h) === 'ordno');
+  const codeOfRow = (row) => {
+    if (ordColMerged < 0) return -1;
+    const mm2 = String(row[ordColMerged] ?? '').trim().match(/^U(\d{2})/i);
+    return mm2 ? parseInt(mm2[1], 10) : -1;
+  };
+  rows.map((row, i) => ({ row, i, code: codeOfRow(row) }))
+    .sort((a, b) => (b.code - a.code) || (a.i - b.i))
+    .forEach((e, idx) => { rows[idx] = e.row; });
     /* ─── STEP 3: build the final BLC sheet (formatted) ───
        Layout mirrors "BLC HDU 8.22 PAGI.xlsx":
          row1 title "Production Report By Order" — Calibri 24, merged across,
