@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { processBlc } from '../../lib/blcClient';
+import { fillAkumulasi, parseDailyFile, parseWorkbookAny, detectKind } from '../../lib/akumulasiClient';
 
 /* ══════════════════════════════════════════════════════════════
    Icons (inline, heroicons outline)
@@ -18,6 +19,7 @@ const ICONS = {
   doc: 'M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z',
   book: 'M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25',
   cog: 'M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.28z M15 12a3 3 0 11-6 0 3 3 0 016 0z',
+  chart: 'M3 3v18h18M7 16l4-8 4 4 5-9',
   chevron: 'M11.25 4.5l7.5 7.5-7.5 7.5m-6-15l7.5 7.5-7.5 7.5',
   menu: 'M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5',
 };
@@ -28,6 +30,7 @@ const ICONS = {
 const NAV_ITEMS = [
   { id: 'beranda', label: 'Beranda', title: 'Beranda', icon: ICONS.home },
   { id: 'proses', label: 'Proses BLC', title: 'Proses BLC', icon: ICONS.bolt },
+  { id: 'akumulasi', label: 'Akumulasi', title: 'Akumulasi Produksi', icon: ICONS.chart },
   { id: 'riwayat', label: 'Riwayat Proses', title: 'Riwayat Proses', icon: ICONS.clock },
   { id: 'referensi', label: 'Referensi Format', title: 'Referensi Format File', icon: ICONS.doc },
   { id: 'panduan', label: 'Panduan', title: 'Panduan Penggunaan', icon: ICONS.book },
@@ -519,6 +522,172 @@ function PengaturanPage() {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   PAGE — Akumulasi (ASS/STT → akumulasi.xlsx)
+   ══════════════════════════════════════════════════════════════ */
+function AkumulasiPage() {
+  const [files, setFiles] = useState({ ass: null, stt: null, akum: null });
+  const [status, setStatus] = useState('idle');
+  const [message, setMessage] = useState('');
+  const [summary, setSummary] = useState(null);
+
+  const pick = (key) => async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const ext = f.name.split('.').pop()?.toLowerCase();
+    if (ext !== 'xlsx' && ext !== 'xls') {
+      setStatus('error'); setMessage(`"${f.name}" harus .xlsx atau .xls`);
+      e.target.value = '';
+      return;
+    }
+    setFiles((p) => ({ ...p, [key]: f }));
+    setStatus('idle'); setMessage('');
+    e.target.value = '';
+  };
+
+  const ready = files.ass && files.stt && files.akum;
+
+  const handleProcess = async () => {
+    if (!ready) return;
+    setStatus('processing');
+    setMessage('Memproses akumulasi di browser...');
+    try {
+      const read = async (f) => new Uint8Array(await f.arrayBuffer());
+      // Auto-detect kind from line codes — protects against swapped uploads
+      let sewParsed = parseDailyFile(parseWorkbookAny(read(files.stt)));
+      let assParsed = parseDailyFile(parseWorkbookAny(read(files.ass)));
+      if (sewParsed.lines.size === 0 && assParsed.lines.size === 0) {
+        throw new Error('Kedua file tidak berisi data line yang dikenali (S… / A…).');
+      }
+      const k1 = detectKind(sewParsed);
+      const k2 = detectKind(assParsed);
+      if (k1 === 'ass' && k2 === 'sew') {
+        [sewParsed, assParsed] = [assParsed, sewParsed]; // swapped uploads: fix silently
+      } else if (k1 !== 'sew' || k2 !== 'ass') {
+        throw new Error(
+          'File tidak dikenali: butuh satu file Sewing (line S01–S18/T02/T03) ' +
+          'dan satu file Assembling (line A01–A18).'
+        );
+      }
+
+      const out = fillAkumulasi(read(files.akum), sewParsed, assParsed);
+      setSummary({ cells: out.filledCells, weeks: out.weeksFound });
+
+      const blob = new Blob([out.zip], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'akumulasi.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+      window.URL.revokeObjectURL(url);
+
+      setStatus('success');
+      setMessage(`Selesai! ${out.filledCells} sel output terisi pada ${out.weeksFound} blok minggu — akumulasi.xlsx terunduh.`);
+    } catch (err) {
+      console.error(err);
+      setStatus('error');
+      setMessage(err.message || 'Terjadi kesalahan saat memproses akumulasi.');
+    }
+  };
+
+  const slots = [
+    { key: 'stt', label: 'File STT', desc: 'Output Sewing harian (STT *.XLS)' },
+    { key: 'ass', label: 'File ASS', desc: 'Input Assembling harian (ASS *.XLS)' },
+    { key: 'akum', label: 'File Akumulasi', desc: 'Template laporan (akumulasi.xlsx)' },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <ol className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        {[
+          { num: '1', title: 'Upload ASS & STT', desc: 'Laporan output harian per line dari sistem JIT.' },
+          { num: '2', title: 'Upload Template Akumulasi', desc: 'File akumulasi.xlsx bulan berjalan dengan struktur mingguan.' },
+          { num: '3', title: 'Isi Otomatis & Unduh', desc: 'Kolom Output tiap line diisi sesuai tanggal minggunya; total dihitung ulang.' },
+        ].map((s) => (
+          <li key={s.num} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <span className="mb-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">{s.num}</span>
+            <p className="text-sm font-semibold text-gray-800">{s.title}</p>
+            <p className="mt-1 text-xs leading-relaxed text-gray-500">{s.desc}</p>
+          </li>
+        ))}
+      </ol>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {slots.map((s) => (
+          <label key={s.key}
+                 className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-colors
+                   ${files[s.key] ? 'border-emerald-300 bg-emerald-50/50' : 'border-gray-300 bg-white hover:border-indigo-400 hover:bg-indigo-50/40'}`}>
+            <span className={`flex h-10 w-10 items-center justify-center rounded-lg ${files[s.key] ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>
+              {files[s.key] ? '✓' : '+'}
+            </span>
+            <p className="text-sm font-semibold text-gray-800">{s.label}</p>
+            <p className="truncate px-2 text-xs text-gray-500">{files[s.key]?.name || s.desc}</p>
+            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={pick(s.key)} />
+          </label>
+        ))}
+      </div>
+
+      {message && (
+        <div role="alert" className={`flex items-center gap-2.5 rounded-xl border px-4 py-3 text-sm ${
+          status === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+          : status === 'error' ? 'border-red-200 bg-red-50 text-red-700'
+          : 'border-indigo-200 bg-indigo-50 text-indigo-800'}`}>
+          {status === 'processing' && (
+            <svg className="h-4 w-4 animate-spin text-indigo-600" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+          )}
+          {(status === 'success' || status === 'error') && <span>{status === 'success' ? '✅' : '⚠️'}</span>}
+          <span>{message}</span>
+        </div>
+      )}
+
+      {summary && (
+        <dl className="grid grid-cols-2 gap-3">
+          {[['Sel Terisi', summary.cells], ['Blok Minggu', summary.weeks]].map(([label, value]) => (
+            <div key={label} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-center shadow-sm">
+              <dt className="text-[10px] uppercase tracking-wide text-gray-400">{label}</dt>
+              <dd className="text-lg font-bold text-gray-800">{value ?? '-'}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      <div className="flex items-center justify-end gap-3 pt-2">
+        {ready && (
+          <button onClick={() => { setFiles({ ass: null, stt: null, akum: null }); setStatus('idle'); setMessage(''); setSummary(null); }}
+                  className="rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-600 hover:bg-gray-50">
+            Reset
+          </button>
+        )}
+        <button onClick={handleProcess}
+                disabled={!ready || status === 'processing'}
+                className={`inline-flex items-center gap-2 rounded-xl px-8 py-3 text-sm font-semibold text-white shadow-md transition-all
+                  ${ready && status !== 'processing'
+                    ? 'bg-indigo-600 hover:bg-indigo-700 hover:shadow-lg active:scale-[0.98]'
+                    : 'cursor-not-allowed bg-gray-300 shadow-none'}`}>
+          {status === 'processing' ? (
+            <>
+              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+              Memproses...
+            </>
+          ) : (
+            <>
+              <Icon d={ICONS.bolt} className="h-4 w-4" />
+              Isi Akumulasi & Unduh
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
    DASHBOARD SHELL
    ══════════════════════════════════════════════════════════════ */
 export default function Dashboard() {
@@ -565,7 +734,7 @@ export default function Dashboard() {
                         : 'hover:bg-slate-800 hover:text-white'}`}>
               <Icon d={item.icon} className="h-5 w-5 shrink-0" />
               {!collapsed && <span className="truncate">{item.label}</span>}
-              {!collapsed && item.id !== 'beranda' && item.id !== 'proses' && (
+              {!collapsed && !['beranda', 'proses', 'akumulasi'].includes(item.id) && (
                 <span className={`ml-auto rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase ${activePage === item.id ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-500 group-hover:bg-slate-700'}`}>
                   soon
                 </span>
@@ -619,6 +788,7 @@ export default function Dashboard() {
           <div className="mx-auto max-w-6xl p-4 sm:p-6">
             {activePage === 'beranda' && <BerandaPage lastResult={lastResult} onNavigate={navigate} />}
             {activePage === 'proses' && <ProsesPage summary={lastResult} setSummary={setLastResult} />}
+            {activePage === 'akumulasi' && <AkumulasiPage />}
             {activePage === 'riwayat' && <RiwayatPage />}
             {activePage === 'referensi' && <ReferensiPage />}
             {activePage === 'panduan' && <PanduanPage />}
