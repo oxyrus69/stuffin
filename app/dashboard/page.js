@@ -525,7 +525,7 @@ function PengaturanPage() {
    PAGE — Akumulasi (ASS/STT → akumulasi.xlsx)
    ══════════════════════════════════════════════════════════════ */
 function AkumulasiPage() {
-  const [files, setFiles] = useState({ ass: null, stt: null, akum: null });
+  const [files, setFiles] = useState({ ass: null, stt: null });
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
   const [summary, setSummary] = useState(null);
@@ -544,7 +544,7 @@ function AkumulasiPage() {
     e.target.value = '';
   };
 
-  const ready = files.ass && files.stt && files.akum;
+  const ready = files.ass && files.stt;
 
   const handleProcess = async () => {
     if (!ready) return;
@@ -553,11 +553,21 @@ function AkumulasiPage() {
     try {
       const read = async (f) => new Uint8Array(await f.arrayBuffer());
       // Auto-detect kind from line codes — protects against swapped uploads
-      let sewParsed = parseDailyFile(parseWorkbookAny(read(files.stt)));
-      let assParsed = parseDailyFile(parseWorkbookAny(read(files.ass)));
-      if (sewParsed.lines.size === 0 && assParsed.lines.size === 0) {
-        throw new Error('Kedua file tidak berisi data line yang dikenali (S… / A…).');
+      let sewParsed, assParsed;
+      try {
+        sewParsed = parseDailyFile(parseWorkbookAny(read(files.stt)));
+        assParsed = parseDailyFile(parseWorkbookAny(read(files.ass)));
+      } catch (e) {
+        throw new Error(`Gagal membaca file: ${e.message}`);
       }
+      if (sewParsed.lines.size === 0 && assParsed.lines.size === 0) {
+        throw new Error(
+          'Tidak ada data line yang dikenali di kedua file. Pastikan file berisi tabel ' +
+          'dengan kolom "LineNo | Line | D1..D31" (format laporan ASS/STT harian).'
+        );
+      }
+      if (sewParsed.lines.size === 0) throw new Error('File pertama (Sewing) tidak berisi line yang dikenali.');
+      if (assParsed.lines.size === 0) throw new Error('File kedua (Assembling) tidak berisi line yang dikenali.');
       const k1 = detectKind(sewParsed);
       const k2 = detectKind(assParsed);
       if (k1 === 'ass' && k2 === 'sew') {
@@ -569,7 +579,10 @@ function AkumulasiPage() {
         );
       }
 
-      const out = fillAkumulasi(read(files.akum), sewParsed, assParsed);
+      setMessage('Mengunduh template akumulasi...');
+      const tplRes = await fetch('/akumulasi-template.xlsx');
+      if (!tplRes.ok) throw new Error('Template akumulasi tidak tersedia di server.');
+      const out = fillAkumulasi(new Uint8Array(await tplRes.arrayBuffer()), sewParsed, assParsed);
       setSummary({ cells: out.filledCells, weeks: out.weeksFound });
 
       const blob = new Blob([out.zip], {
@@ -593,7 +606,6 @@ function AkumulasiPage() {
   const slots = [
     { key: 'stt', label: 'File STT', desc: 'Output Sewing harian (STT *.XLS)' },
     { key: 'ass', label: 'File ASS', desc: 'Input Assembling harian (ASS *.XLS)' },
-    { key: 'akum', label: 'File Akumulasi', desc: 'Template laporan (akumulasi.xlsx)' },
   ];
 
   return (
@@ -601,7 +613,7 @@ function AkumulasiPage() {
       <ol className="grid grid-cols-1 gap-3 md:grid-cols-3">
         {[
           { num: '1', title: 'Upload ASS & STT', desc: 'Laporan output harian per line dari sistem JIT.' },
-          { num: '2', title: 'Upload Template Akumulasi', desc: 'File akumulasi.xlsx bulan berjalan dengan struktur mingguan.' },
+          { num: '2', title: 'Template Otomatis', desc: 'Template akumulasi bulan berjalan diambil otomatis dari server.' },
           { num: '3', title: 'Isi Otomatis & Unduh', desc: 'Kolom Output tiap line diisi sesuai tanggal minggunya; total dihitung ulang.' },
         ].map((s) => (
           <li key={s.num} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -656,7 +668,7 @@ function AkumulasiPage() {
 
       <div className="flex items-center justify-end gap-3 pt-2">
         {ready && (
-          <button onClick={() => { setFiles({ ass: null, stt: null, akum: null }); setStatus('idle'); setMessage(''); setSummary(null); }}
+          <button onClick={() => { setFiles({ ass: null, stt: null }); setStatus('idle'); setMessage(''); setSummary(null); }}
                   className="rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-600 hover:bg-gray-50">
             Reset
           </button>
