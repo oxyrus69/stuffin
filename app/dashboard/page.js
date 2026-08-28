@@ -556,17 +556,30 @@ export default function Dashboard() {
 
       {/* Sidebar — force dark */}
       <aside className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r border-[#1f1f1f] bg-black transition-all duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 ${collapsed ? 'md:w-[56px]' : 'md:w-[220px]'} w-[220px]`}>
-        <div className="flex h-[64px] shrink-0 items-center gap-2.5 border-b border-[#1f1f1f] px-2">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white text-black"><VercelMark className="h-4 w-4" /></span>
-          {!collapsed && <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold tracking-[-0.02em] text-white">BLC Processor</p><p className="truncate font-mono text-[10px] tracking-wide text-[#888]">STUFFING SUITE</p></div>}
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            aria-label={collapsed ? 'Buka sidebar' : 'Ciutkan sidebar'}
-            title={collapsed ? 'Buka' : 'Ciutkan'}
-            className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-[#666] hover:bg-[#111] hover:text-white hover:border-[#232323]"
-          >
-            <CollapseIcon collapsed={collapsed} />
-          </button>
+        <div className={`flex h-[64px] shrink-0 items-center border-b border-[#1f1f1f] ${collapsed ? 'justify-center px-2' : 'gap-2.5 px-3'}`}>
+          {!collapsed ? (
+            <>
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white text-black"><VercelMark className="h-4 w-4" /></span>
+              <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold tracking-[-0.02em] text-white">BLC Processor</p><p className="truncate font-mono text-[10px] tracking-wide text-[#888]">STUFFING SUITE</p></div>
+              <button
+                onClick={() => setCollapsed(!collapsed)}
+                aria-label="Ciutkan sidebar"
+                title="Ciutkan"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-[#666] hover:bg-[#111] hover:text-white hover:border-[#232323]"
+              >
+                <CollapseIcon collapsed={false} />
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setCollapsed(!collapsed)}
+              aria-label="Buka sidebar"
+              title="Buka"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-[#1f1f1f] bg-[#0a0a0a] text-[#888] hover:bg-[#111] hover:text-white hover:border-[#333]"
+            >
+              <CollapseIcon collapsed={true} />
+            </button>
+          )}
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto p-2">
