@@ -268,46 +268,44 @@ function ProsesPage({ summary, setSummary }) {
   );
 }
 
-/* ── Beranda ── */
-function BerandaPage({ lastResult, onNavigate }) {
+/* ── Beranda — tombol ergonomis ── */
+function BerandaPage({ onNavigate }) {
+  const menuDesc = {
+    beranda: 'Ringkasan & akses cepat ke semua fitur',
+    proses: 'Gabungkan banyak file JIT → sheet Blc',
+    akumulasi: 'Isi template mingguan dari ASS & STT',
+    riwayat: 'Lihat arsip proses sebelumnya',
+    referensi: 'Daftar kolom & contoh file',
+    panduan: 'Langkah lengkap penggunaan',
+    pengaturan: 'Kelola preferensi aplikasi',
+  };
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label="File JIT Terakhir" value={lastResult ? lastResult.jitFiles : '—'} hint={lastResult ? 'Hasil proses terakhir' : 'Belum ada pemrosesan'} />
-        <StatCard label="Order NB" value={lastResult ? lastResult.nbOrders : '—'} hint={lastResult ? `Periode ${lastResult.period}` : 'Belum ada'} />
-        <StatCard label="Status Sistem" value="● Siap" hint="Mesin penggabungan aktif" />
+      <div>
+        <h2 className="text-[13px] font-semibold tracking-[-0.02em] text-white">Navigasi Cepat</h2>
+        <p className="mt-1 text-sm leading-5 text-[#888]">Pilih menu — tombol besar, nyaman di klik, langsung masuk ke fitur.</p>
       </div>
-      <Card>
-        <CardHeader title="Mulai Cepat" subtitle="Tiga langkah menghasilkan file BLC" action={<VercelButton variant="primary" onClick={()=>onNavigate('proses')}>Mulai Proses <Icon d={ICONS.bolt} className="h-3.5 w-3.5" /></VercelButton>} />
-        <div className="px-4 py-3 flex flex-wrap items-center gap-2 text-xs">
-          {['Upload JIT','Filter NB','Gabung & unduh'].map((s,i)=>(
-            <span key={s} className="inline-flex items-center gap-2 text-[#888]">
-              <StepNumber n={String(i+1)} /> <span className="font-medium tracking-[-0.01em] text-white">{s}</span> {i<2 && <span className="px-1 text-[#262626]">—</span>}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => onNavigate(item.id)}
+            className="group flex min-h-[96px] items-center gap-4 rounded-xl border border-[#1f1f1f] bg-[#0a0a0a] p-5 text-left transition-colors hover:border-white hover:bg-[#111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[#232323] bg-black text-white group-hover:border-white group-hover:bg-white group-hover:text-black transition-colors">
+              <Icon d={item.icon} className="h-5 w-5" />
             </span>
-          ))}
-        </div>
-      </Card>
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <Card>
-          <CardHeader title="Aktivitas Terkini" subtitle="Log tersimpan di Riwayat" />
-          <div className="flex flex-col items-center px-4 py-10 text-center">
-            <span className="flex h-8 w-8 items-center justify-center rounded-md border border-[#262626] bg-black text-[#888]"><Icon d={ICONS.clock} className="h-4 w-4" /></span>
-            <p className="mt-3 text-sm tracking-[-0.01em] text-white">Belum ada aktivitas</p>
-            <p className="text-xs text-[#888]">Proses yang berhasil akan tercatat.</p>
-            <VercelButton variant="secondary" className="mt-4" onClick={()=>onNavigate('riwayat')}>Lihat Riwayat</VercelButton>
-          </div>
-        </Card>
-        <Card>
-          <CardHeader title="Butuh Bantuan?" subtitle="Dokumentasi alur & format" />
-          <div className="px-4 py-4">
-            <p className="text-sm leading-6 tracking-[-0.01em] text-[#888]">Pelajari struktur kolom JIT dan langkah pemrosesan di Panduan atau Referensi Format.</p>
-            <div className="mt-4 flex gap-2">
-              <VercelButton variant="secondary" onClick={()=>onNavigate('panduan')}>Buka Panduan</VercelButton>
-              <VercelButton variant="ghost" onClick={()=>onNavigate('referensi')}>Referensi Format</VercelButton>
-            </div>
-          </div>
-        </Card>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold tracking-[-0.01em] text-white group-hover:text-white">{item.label}</span>
+              <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-[#888]">{menuDesc[item.id]}</span>
+            </span>
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#232323] bg-black text-[#666] group-hover:border-white group-hover:bg-white group-hover:text-black transition-colors">
+              <Icon d="M8.25 4.5l7.5 7.5-7.5 7.5" className="h-4 w-4" />
+            </span>
+          </button>
+        ))}
       </div>
+      <p className="font-mono text-xs text-[#666]">Tips: gunakan tombol di atas — setara dengan klik menu di sidebar, tapi lebih ergonomis di dashboard.</p>
     </div>
   );
 }
@@ -617,7 +615,6 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="hidden items-center gap-1.5 rounded-full border border-[#1f1f1f] bg-[#0a0a0a] px-2.5 py-1 font-mono text-xs font-medium text-[#888] md:inline-flex"><span className="h-1.5 w-1.5 rounded-full bg-[#4ade80] animate-pulse" /> Mesin aktif</span>
             <span className="hidden font-mono text-xs tracking-[-0.01em] text-[#666] lg:block">{today}</span>
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-medium text-black">OP</span>
           </div>
@@ -641,7 +638,6 @@ export default function Dashboard() {
 
             <footer className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-[#1f1f1f] py-4 font-mono text-xs tracking-[-0.01em] text-[#666]">
               <span>© 2026 BLC Processor · Built with Vercel Geist · Force Dark</span>
-              <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-white" /> System operational</span>
             </footer>
           </div>
         </main>
