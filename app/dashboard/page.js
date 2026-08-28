@@ -556,10 +556,17 @@ export default function Dashboard() {
 
       {/* Sidebar — force dark */}
       <aside className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r border-[#1f1f1f] bg-black transition-all duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 ${collapsed ? 'md:w-[56px]' : 'md:w-[220px]'} w-[220px]`}>
-        <div className="flex h-[64px] shrink-0 items-center gap-2.5 border-b border-[#1f1f1f] px-3">
+        <div className="flex h-[64px] shrink-0 items-center gap-2.5 border-b border-[#1f1f1f] px-2">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white text-black"><VercelMark className="h-4 w-4" /></span>
           {!collapsed && <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold tracking-[-0.02em] text-white">BLC Processor</p><p className="truncate font-mono text-[10px] tracking-wide text-[#888]">STUFFING SUITE</p></div>}
-          {!collapsed && <span className="rounded-full border border-[#232323] bg-[#111] px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wide text-[#888]">HDS</span>}
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            aria-label={collapsed ? 'Buka sidebar' : 'Ciutkan sidebar'}
+            title={collapsed ? 'Buka' : 'Ciutkan'}
+            className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-[#666] hover:bg-[#111] hover:text-white hover:border-[#232323]"
+          >
+            <CollapseIcon collapsed={collapsed} />
+          </button>
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto p-2">
@@ -578,19 +585,7 @@ export default function Dashboard() {
           ))}
         </nav>
 
-        <div className="border-t border-[#1f1f1f] p-2">
-          <button onClick={() => setCollapsed(!collapsed)} className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium tracking-[-0.01em] text-[#888] hover:bg-[#111] hover:text-white">
-            <CollapseIcon collapsed={collapsed} />
-            {!collapsed && <span>Ciutkan</span>}
-          </button>
-        </div>
 
-        {!collapsed && (
-          <div className="border-t border-[#1f1f1f] bg-[#0a0a0a] px-3 py-3">
-            <p className="font-mono text-xs font-medium tracking-[-0.01em] text-white">Need help?</p>
-            <p className="mt-1 text-xs leading-5 text-[#888]">Dokumentasi format JIT & alur BLC ada di Panduan.</p>
-          </div>
-        )}
       </aside>
 
       {mobileOpen && <div className="fixed inset-0 z-20 bg-black/60 backdrop-blur-sm md:hidden" onClick={() => setMobileOpen(false)} />}
@@ -621,7 +616,6 @@ export default function Dashboard() {
               <span className="inline-flex items-center gap-1.5 text-[#888]"><VercelMark className="h-3 w-3 text-white" /> stuffing</span>
               <span className="text-[#232323]">/</span>
               <span className="font-medium tracking-[-0.01em] text-white">{active?.title}</span>
-              <span className="ml-auto hidden items-center gap-1 rounded-md border border-[#232323] bg-[#0a0a0a] px-2 py-1 font-mono text-[10px] tracking-wide text-[#888] md:inline-flex">▲ Vercel Dark</span>
             </div>
 
             {activePage === 'beranda' && <BerandaPage lastResult={lastResult} onNavigate={navigate} />}
