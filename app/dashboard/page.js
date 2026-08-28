@@ -283,10 +283,10 @@ function BerandaPage({ onNavigate }) {
     <div className="space-y-4">
       <div>
         <h2 className="text-[13px] font-semibold tracking-[-0.02em] text-white">Navigasi Cepat</h2>
-        <p className="mt-1 text-sm leading-5 text-[#888]">Pilih menu — tombol besar, nyaman di klik, langsung masuk ke fitur.</p>
+        <p className="mt-1 text-sm leading-5 text-[#888]">Pilih menu dengan klik tombol dibawah ya.</p>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {NAV_ITEMS.map((item) => (
+        {NAV_ITEMS.filter((item) => item.id !== 'beranda').map((item) => (
           <button
             key={item.id}
             onClick={() => onNavigate(item.id)}
@@ -305,7 +305,6 @@ function BerandaPage({ onNavigate }) {
           </button>
         ))}
       </div>
-      <p className="font-mono text-xs text-[#666]">Tips: gunakan tombol di atas — setara dengan klik menu di sidebar, tapi lebih ergonomis di dashboard.</p>
     </div>
   );
 }
@@ -582,7 +581,7 @@ export default function Dashboard() {
 
         <nav className="flex-1 space-y-1 overflow-y-auto p-2">
           <p className={`px-2 pb-1 pt-2 font-mono text-[11px] font-medium tracking-widest text-[#666] ${collapsed ? 'hidden' : 'block'}`}>MENU</p>
-          {NAV_ITEMS.map((item) => (
+        {NAV_ITEMS.filter((item) => item.id !== 'beranda').map((item) => (
             <button
               key={item.id}
               onClick={() => navigate(item.id)}
