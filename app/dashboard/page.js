@@ -581,7 +581,7 @@ export default function Dashboard() {
 
         <nav className="flex-1 space-y-1 overflow-y-auto p-2">
           <p className={`px-2 pb-1 pt-2 font-mono text-[11px] font-medium tracking-widest text-[#666] ${collapsed ? 'hidden' : 'block'}`}>MENU</p>
-        {NAV_ITEMS.filter((item) => item.id !== 'beranda').map((item) => (
+          {NAV_ITEMS.map((item) => (
             <button
               key={item.id}
               onClick={() => navigate(item.id)}
