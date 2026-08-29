@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { processBlc } from '../../lib/blcClient';
 import { fillAkumulasi, parseDailyFile, parseWorkbookAny, detectKind, diagnoseFile } from '../../lib/akumulasiClient';
 
@@ -545,7 +545,22 @@ export default function Dashboard() {
   const navigate = (page) => { setActivePage(page); setMobileOpen(false); };
   const active = NAV_ITEMS.find((n) => n.id === activePage);
   const [today, setToday] = useState('');
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef(null);
   useEffect(() => { setToday(new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())); }, []);
+  useEffect(() => {
+    const onClickOutside = (e) => {
+      if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false);
+    };
+    if (profileOpen) document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [profileOpen]);
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {}
+    window.location.href = '/login';
+  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-black text-[#ededed] selection:bg-white selection:text-black" style={{ fontFamily: 'Inter, "Geist Sans", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif', fontFeatureSettings: '"ss01","ss02"' }}>
@@ -615,7 +630,34 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-2">
             <span className="hidden font-mono text-xs tracking-[-0.01em] text-[#666] lg:block">{today}</span>
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-medium text-black">OP</span>
+            <div className="relative" ref={profileRef}>
+              <button
+                onClick={() => setProfileOpen((v) => !v)}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-medium text-black ring-2 ring-transparent hover:ring-[#262626] transition"
+                aria-haspopup="menu"
+                aria-expanded={profileOpen}
+                title="Menu akun"
+              >
+                OP
+              </button>
+              {profileOpen && (
+                <div className="absolute right-0 top-10 z-40 w-56 overflow-hidden rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] shadow-[0_8px_24px_rgba(0,0,0,0.6)]">
+                  <div className="border-b border-[#1f1f1f] p-3">
+                    <p className="text-sm font-semibold tracking-[-0.01em] text-white">Operator</p>
+                    <p className="mt-0.5 font-mono text-xs tracking-[-0.01em] text-[#888]">HOPE • authenticated</p>
+                  </div>
+                  <div className="p-1.5">
+                    <button
+                      onClick={handleLogout}
+                      className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm tracking-[-0.01em] text-[#ededed] hover:bg-[#111] hover:text-white"
+                    >
+                      <Icon d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" className="h-4 w-4 text-[#888]" />
+                      Keluar
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

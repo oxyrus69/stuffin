@@ -1,23 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-
 /**
- * Root page acts as auth router:
- * - No cookie or NOT logged_out → redirect to /dashboard
- * - Cookie app_auth=logged_out → redirect to /login
+ * Root page: middleware sudah meng-handle redirect ke /login atau /dashboard.
+ * Fallback client (jika middleware tidak berjalan) -> coba ke /dashboard.
  */
 export default function RootPage() {
-  const [checking, setChecking] = useState(true);
-
-  useEffect(() => {
-    const auth = document.cookie.split('; ').find(c => c.startsWith('app_auth='));
-    if (auth && auth.includes('logged_out')) {
-      window.location.href = '/login';
-    } else {
-      window.location.href = '/dashboard';
-    }
-  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-indigo-50 flex items-center justify-center">

@@ -1,36 +1,33 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 export default function LoginPage() {
   const [key, setKey] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Check if already authenticated (shouldn't happen but just in case)
-  useEffect(() => {
-    const auth = document.cookie.split('; ').find(c => c.startsWith('app_auth='));
-    if (!auth || !auth.includes('logged_out')) {
-      window.location.href = '/dashboard';
-    }
-  }, []);
-
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
-
-    // Simulate slight delay for UX
-    setTimeout(() => {
-      if (key.trim() === 'jinji') {
-        // Clear the "logged_out" cookie
-        document.cookie = 'app_auth=; path=/; max-age=0';
-        window.location.href = '/dashboard';
-      } else {
-        setError('Kunci tidak valid. Silakan coba lagi.');
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: key.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        setError(data.error || 'Kunci tidak valid. Silakan coba lagi.');
         setIsLoading(false);
+        return;
       }
-    }, 500);
+      window.location.href = '/dashboard';
+    } catch (err) {
+      setError('Gagal menghubungi server. Coba lagi.');
+      setIsLoading(false);
+    }
   };
 
   return (
