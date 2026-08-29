@@ -1,8 +1,8 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Stuffing Data Processor',
-  description: 'Otomatisasi pemrosesan data Excel Stuffing List, BLC, dan Daily Inspection',
+  title: 'Stuffing Processor — BLC & Akumulasi',
+  description: 'Pengolahan BLC dari data JIT dan pengisian template akumulasi otomatis',
 };
 
 export default function RootLayout({ children }) {
