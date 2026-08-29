@@ -373,7 +373,7 @@ function PanduanPage() {
         <ol className="relative space-y-5 border-l border-[#262626] pl-6">
           {steps.map((s,i)=>(
             <li key={s.t} className="relative">
-              <span className="absolute -left-[25px] flex h-6 w-6 items-center justify-center rounded-full bg-white text-xs font-medium text-black">{i+1}</span>
+              <span className="absolute -left-[36px] flex h-6 w-6 items-center justify-center rounded-full bg-white text-xs font-medium text-black">{i+1}</span>
               <p className="text-sm font-medium tracking-[-0.01em] text-white">{s.t}</p>
               <p className="mt-1 text-sm leading-6 tracking-[-0.01em] text-[#888]">{s.d}</p>
             </li>
