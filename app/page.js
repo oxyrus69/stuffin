@@ -5,12 +5,11 @@
  * Fallback client (jika middleware tidak berjalan) -> coba ke /dashboard.
  */
 export default function RootPage() {
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-indigo-50 flex items-center justify-center">
-      <div className="flex items-center gap-3 text-gray-400">
-        <span className="spinner !border-gray-300 !border-t-indigo-500"></span>
-        <span className="text-sm font-medium">Memuat...</span>
+    <div className="flex min-h-screen items-center justify-center bg-black selection:bg-white selection:text-black">
+      <div className="flex items-center gap-3 text-[#666]">
+        <span className="spinner"></span>
+        <span className="font-mono text-xs tracking-[-0.01em]">Memuat...</span>
       </div>
     </div>
   );
