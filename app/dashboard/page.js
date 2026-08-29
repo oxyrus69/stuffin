@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { processBlc } from '../../lib/blcClient';
+import { processBlc, stageJitFiles, assembleFromSelection } from '../../lib/blcClient';
 import { fillAkumulasi, parseDailyFile, parseWorkbookAny, detectKind, diagnoseFile } from '../../lib/akumulasiClient';
 
 /* ── Vercel Geist — icons (1.5 stroke, 16-18px) ── */
@@ -107,6 +107,22 @@ function StepNumber({ n }) {
   return <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[#262626] bg-[#111] text-xs font-medium text-white">{n}</span>;
 }
 
+/* ── kecil: toggle + checkbox tinjau ── */
+function MiniToggle({ on, onChange }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} onClick={() => onChange(!on)} className="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20" style={{ background: on ? '#fff' : '#000', borderColor: on ? '#fff' : '#262626' }}>
+      <span className={`inline-block h-3.5 w-3.5 rounded-full transition-transform ${on ? 'translate-x-4 bg-black' : 'translate-x-0.5 bg-[#333]'}`} />
+    </button>
+  );
+}
+function ReviewCheck({ checked, onToggle }) {
+  return (
+    <button type="button" role="checkbox" aria-checked={checked} onClick={onToggle} className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[4px] border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 ${checked ? 'border-white bg-white text-black' : 'border-[#262626] bg-black text-transparent hover:border-white'}`}>
+      {checked && <Icon d={ICONS.check} className="h-3 w-3" />}
+    </button>
+  );
+}
+
 /* ── Proses BLC ── */
 function ProsesPage({ summary, setSummary }) {
   const [jitFiles, setJitFiles] = useState([]);
@@ -116,6 +132,9 @@ function ProsesPage({ summary, setSummary }) {
   const [error, setError] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [dragOverStuffing, setDragOverStuffing] = useState(false);
+  const [reviewMode, setReviewMode] = useState(false);
+  const [staged, setStaged] = useState(null);
+  const [reviewFilter, setReviewFilter] = useState('all');
 
   const validateFile = (file) => {
     const ext = file.name?.split('.').pop()?.toLowerCase();
@@ -133,12 +152,18 @@ function ProsesPage({ summary, setSummary }) {
         for (const f of files) map.set(`${f.name}:${f.size}`, f);
         return Array.from(map.values());
       });
+      setStaged(null);
+      setReviewFilter('all');
+      if (err) { setStatus('idle'); setMessage(''); }
     }
   };
-  const removeFile = (name) => setJitFiles((prev) => prev.filter((f) => f.name !== name));
-  const resetAll = () => { setJitFiles([]); setStuffingFile(null); setStatus('idle'); setMessage(''); setError(null); setSummary(null); };
+  const removeFile = (name) => { setJitFiles((prev) => prev.filter((f) => f.name !== name)); setStaged(null); };
+  const resetAll = () => { setJitFiles([]); setStuffingFile(null); setStaged(null); setReviewFilter('all'); setStatus('idle'); setMessage(''); setError(null); setSummary(null); };
+
+  const toggleReviewMode = (v) => { setReviewMode(v); setStaged(null); setReviewFilter('all'); setStatus('idle'); setMessage(''); };
 
   const handleProcess = async () => {
+    setStaged(null);
     setStatus('processing');
     setSummary(null);
     setMessage(stuffingFile ? 'Menyusun sheet Blc…' : 'Menggabungkan file JIT…');
@@ -157,6 +182,63 @@ function ProsesPage({ summary, setSummary }) {
       setMessage(stuffingFile ? `Selesai — Blc ditimpa (${report.nbOrders} order) → ${filename}` : `Selesai — ${jitFiles.length} file → ${report.nbOrders} order → ${filename}`);
     } catch (err) { console.error(err); setStatus('error'); setMessage(err.message || 'Gagal memproses.'); }
   };
+
+  const handleStage = async () => {
+    setStatus('processing');
+    setSummary(null);
+    setStaged(null);
+    setMessage('Membaca & memilah file JIT…');
+    setReviewFilter('all');
+    try {
+      const bytes = await Promise.all(jitFiles.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
+      const result = await stageJitFiles({ jitFiles: bytes, onProgress: (m) => setMessage(m) });
+      setStaged(result);
+      setStatus('idle');
+      setMessage('');
+      if (result.warnings?.length) console.info('[BLC stage]', result.warnings);
+      // jika tidak ada baris NB sama sekali, tetap tampilkan panel — user bisa centang manual
+    } catch (err) { console.error(err); setStatus('error'); setMessage(err.message || 'Gagal meninjau data.'); }
+  };
+
+  const handleDownloadSelection = async () => {
+    const n = staged ? staged.files.reduce((c, f) => c + f.rows.filter((r) => r.included).length, 0) : 0;
+    if (!staged || n === 0) return;
+    setStatus('processing');
+    setSummary(null);
+    setMessage(stuffingFile ? 'Menyusun sheet Blc…' : 'Memformat file BLC…');
+    try {
+      const stuff = stuffingFile ? { name: stuffingFile.name, bytes: new Uint8Array(await stuffingFile.arrayBuffer()) } : null;
+      const { data, filename, report, warnings } = await assembleFromSelection({ staged, stuffingFile: stuff, onProgress: (m) => setMessage(m) });
+      setSummary(report);
+      if (warnings?.length) console.info('[BLC tinjau]', warnings);
+      const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
+      setStatus('success');
+      setMessage(`Selesai — ${n} order terpilih → ${filename}`);
+    } catch (err) { console.error(err); setStatus('error'); setMessage(err.message || 'Gagal memproses pilihan.'); }
+  };
+
+  const toggleRow = (fileIdx, rowI) => {
+    setStaged((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, files: prev.files.map((f, fi) => fi !== fileIdx ? f : { ...f, rows: f.rows.map((r) => r.i === rowI ? { ...r, included: !r.included } : r) }) };
+      return next;
+    });
+  };
+  const setFileRows = (fileIdx, updater) => {
+    setStaged((prev) => {
+      if (!prev) return prev;
+      return { ...prev, files: prev.files.map((f, fi) => fi !== fileIdx ? f : { ...f, rows: f.rows.map(updater) }) };
+    });
+  };
+  const selectNbInFile = (fileIdx) => setFileRows(fileIdx, (r) => r.isNb ? { ...r, included: true } : r);
+  const clearFile = (fileIdx) => setFileRows(fileIdx, (r) => ({ ...r, included: false }));
+
+  const stagedCounts = staged ? staged.files.reduce((a, f) => ({ total: a.total + f.rows.length, masuk: a.masuk + f.rows.filter((r) => r.included).length }), { total: 0, masuk: 0 }) : null;
+  const selectedCount = stagedCounts ? stagedCounts.masuk : 0;
+
+
 
   return (
     <div className="space-y-4">
@@ -233,11 +315,90 @@ function ProsesPage({ summary, setSummary }) {
         </Card>
       )}
 
+      {staged && (
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Tinjau Data"
+            subtitle={`${stagedCounts.masuk} order akan diproses · ${stagedCounts.total - stagedCounts.masuk} dibuang — centang untuk memasukkan`}
+            action={
+              <div className="flex items-center gap-1 rounded-full border border-[#1f1f1f] bg-black p-0.5">
+                {[
+                  ['all', `Semua ${stagedCounts.total}`],
+                  ['masuk', `Masuk ${stagedCounts.masuk}`],
+                  ['buang', `Dibuang ${stagedCounts.total - stagedCounts.masuk}`],
+                ].map(([k, label])=>(
+                  <button key={k} onClick={()=>setReviewFilter(k)} className={`rounded-full px-2.5 py-1 text-[11px] font-medium tracking-[-0.01em] transition-colors ${reviewFilter===k ? 'bg-white text-black' : 'text-[#888] hover:text-white'}`}>{label}</button>
+                ))}
+              </div>
+            }
+          />
+          <div className="space-y-3 p-3">
+            {staged.files.map((file, fileIdx) => {
+              const masuk = file.rows.filter((r) => r.included).length;
+              const buang = file.rows.length - masuk;
+              const visible = file.rows.filter((r) => reviewFilter==='all' ? true : reviewFilter==='masuk' ? r.included : !r.included);
+              return (
+                <div key={file.name} className="overflow-hidden rounded-lg border border-[#1f1f1f] bg-black">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1f1f1f] bg-[#0a0a0a] px-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="truncate font-mono text-xs font-medium text-white">{file.name}</p>
+                      <p className="mt-0.5 truncate font-mono text-[11px] text-[#666]">{file.sheetName} · {file.period || 'tanpa periode'} · {file.rows.length} baris terdeteksi</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="hidden font-mono text-[11px] text-[#888] sm:inline">{masuk} masuk · {buang} dibuang</span>
+                      <button onClick={()=>selectNbInFile(fileIdx)} className="rounded-md border border-[#262626] bg-[#0a0a0a] px-2.5 py-1 text-xs font-medium tracking-[-0.01em] text-[#ededed] hover:border-white hover:bg-[#111]">Pilih NB</button>
+                      <button onClick={()=>clearFile(fileIdx)} className="rounded-md border border-transparent px-2 py-1 text-xs text-[#666] hover:text-white">Kosongkan</button>
+                    </div>
+                  </div>
+                  {visible.length === 0 ? (
+                    <p className="px-3 py-6 text-center text-xs text-[#666]">Tidak ada baris pada filter ini.</p>
+                  ) : (
+                    <div className="max-h-[340px] overflow-auto">
+                      <table className="w-full text-left">
+                        <thead className="sticky top-0 z-[1] border-b border-[#1f1f1f] bg-[#111]">
+                          <tr>
+                            <th className="w-9 px-3 py-2"><span className="sr-only">Pilih</span></th>
+                            <th className="px-2 py-2 font-mono text-[10px] font-medium uppercase tracking-widest text-[#888]">OrdNo</th>
+                            <th className="hidden px-2 py-2 font-mono text-[10px] font-medium uppercase tracking-widest text-[#888] sm:table-cell">StyleNo</th>
+                            <th className="px-2 py-2 font-mono text-[10px] font-medium uppercase tracking-widest text-[#888]">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#1f1f1f]">
+                          {visible.map((r) => (
+                            <tr key={`${fileIdx}-${r.i}`} className={`group ${r.included ? 'bg-black' : 'bg-[#0a0a0a]'}`}>
+                              <td className="px-3 py-2"><ReviewCheck checked={r.included} onToggle={()=>toggleRow(fileIdx, r.i)} /></td>
+                              <td className={`max-w-[170px] truncate px-2 py-2 font-mono text-xs tracking-tight ${r.included ? 'font-medium text-white' : 'text-[#888]'}`}>{r.ordNo}</td>
+                              <td className="hidden max-w-[120px] truncate px-2 py-2 font-mono text-xs text-[#888] sm:table-cell">{r.styleNo || '—'}</td>
+                              <td className="px-2 py-2">
+                                {r.included ? (
+                                  <span className="inline-flex items-center gap-1.5 text-xs text-[#4ade80]"><span className="h-1.5 w-1.5 rounded-full bg-[#4ade80]" /> Masuk</span>
+                                ) : (
+                                  <span className="line-clamp-2 text-xs leading-4 text-[#f87171]">{r.reason}</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <p className="border-t border-[#1f1f1f] bg-[#0a0a0a] px-3 py-1.5 font-mono text-[11px] text-[#666]">Urutan akhir mengikuti U07→U08→U09→U10→U11→U12→U01…U06 · duplikasi dibiarkan sesuai pilihan (dengan peringatan).</p>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-between border-t border-[#1f1f1f] bg-[#111] px-3 py-2">
+            <span className="font-mono text-[11px] text-[#888]">{selectedCount} order terpilih</span>
+            <button onClick={()=>setStaged(null)} className="text-xs tracking-[-0.01em] text-[#666] hover:text-white">Tutup tinjau</button>
+          </div>
+        </Card>
+      )}
+
       {message && (
         <div className={`flex items-center gap-2.5 rounded-md border px-3 py-2.5 text-sm ${status==='success'?'border-[#1a3a1a] bg-[#0a1a0a] text-[#4ade80]': status==='error'?'border-[#3a1a1a] bg-[#1a0a0a] text-[#f87171]':'border-[#262626] bg-[#111] text-[#ededed]'}`}>
           {status==='processing' && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#262626] border-t-white" />}
-          {status!=='processing' && <span className={`h-1.5 w-1.5 rounded-full ${status==='success'?'bg-[#4ade80]':'bg-[#f87171]'}`} />}
-          <span className="text-sm tracking-[-0.01em]">{message}</span>
+          {status!=='processing' && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${status==='success'?'bg-[#4ade80]':'bg-[#f87171]'}`} />}
+          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm tracking-[-0.01em]">{message}</span>
         </div>
       )}
 
@@ -257,13 +418,31 @@ function ProsesPage({ summary, setSummary }) {
         </div>
       )}
 
-      <div className="flex items-center justify-end gap-2">
-        {jitFiles.length>0 && <VercelButton variant="secondary" onClick={resetAll}>Reset</VercelButton>}
-        <VercelButton variant="primary" onClick={handleProcess} disabled={jitFiles.length===0 || status==='processing' || !!error}>
-          {status==='processing' ? 'Memproses…' : stuffingFile ? 'Timpa Blc & Unduh' : 'Gabungkan & Unduh'}
-        </VercelButton>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <MiniToggle on={reviewMode} onChange={toggleReviewMode} />
+          <span className="text-xs tracking-[-0.01em] text-[#888]">Tinjau dulu</span>
+          {reviewMode && staged && <span className="hidden font-mono text-[11px] text-[#666] sm:inline">· {selectedCount} terpilih</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          {jitFiles.length>0 && <VercelButton variant="secondary" onClick={resetAll}>Reset</VercelButton>}
+          {!reviewMode ? (
+            <VercelButton variant="primary" onClick={handleProcess} disabled={jitFiles.length===0 || status==='processing' || !!error}>
+              {status==='processing' ? 'Memproses…' : stuffingFile ? 'Timpa Blc & Unduh' : 'Gabungkan & Unduh'}
+            </VercelButton>
+          ) : !staged ? (
+            <VercelButton variant="primary" onClick={handleStage} disabled={jitFiles.length===0 || status==='processing' || !!error}>
+              {status==='processing' ? 'Membaca…' : 'Tinjau Data'}
+            </VercelButton>
+          ) : (
+            <VercelButton variant="primary" onClick={handleDownloadSelection} disabled={selectedCount===0 || status==='processing'}>
+              {status==='processing' ? 'Memproses…' : `Unduh ${selectedCount} order terpilih`}
+            </VercelButton>
+          )}
+        </div>
       </div>
       {jitFiles.length===0 && <p className="text-right font-mono text-xs text-[#666]">Pilih minimal 1 file JIT.</p>}
+      {reviewMode && staged && selectedCount===0 && <p className="text-right font-mono text-xs text-[#f87171]">Centang minimal 1 order untuk mengunduh.</p>}
     </div>
   );
 }
