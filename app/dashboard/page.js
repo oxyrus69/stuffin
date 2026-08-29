@@ -549,7 +549,7 @@ export default function Dashboard() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-black text-[#ededed] selection:bg-white selection:text-black" style={{ fontFamily: 'Inter, "Geist Sans", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif', fontFeatureSettings: '"ss01","ss02"' }}>
-      <style>{`html{color-scheme:dark} ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#262626;border-radius:999px;border:2px solid #000}::-webkit-scrollbar-thumb:hover{background:#333} *{scrollbar-width:thin; scrollbar-color:#262626 #000} input::placeholder{color:#666}`}</style>
+      <style>{`html{color-scheme:dark} ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#262626;border-radius:999px;border:2px solid #000}::-webkit-scrollbar-thumb:hover{background:#333} *{scrollbar-width:thin; scrollbar-color:#262626 #000} input::placeholder{color:#666} @keyframes hope-glow{0%,100%{text-shadow:0 0 4px rgba(255,255,255,0.1),0 0 8px rgba(255,255,255,0.05)}50%{text-shadow:0 0 8px rgba(255,255,255,0.4),0 0 20px rgba(255,255,255,0.15),0 0 40px rgba(255,255,255,0.05)}} .hope-glow{animation:hope-glow 3s ease-in-out infinite}`}</style>
 
       {/* Sidebar — force dark */}
       <aside className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r border-[#1f1f1f] bg-black transition-all duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 ${collapsed ? 'md:w-[56px]' : 'md:w-[220px]'} w-[220px]`}>
@@ -636,7 +636,7 @@ export default function Dashboard() {
             {activePage === 'pengaturan' && <PengaturanPage />}
 
             <footer className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-[#1f1f1f] py-4 font-mono text-xs tracking-[-0.01em] text-[#666]">
-              <span>© 2026 HOPE · Help Out Purest Entity</span>
+              <span>© 2026 HOPE · <span className="hope-glow text-[#999]">Help Out Purest Entity</span></span>
             </footer>
           </div>
         </main>
