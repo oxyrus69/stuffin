@@ -557,7 +557,7 @@ export default function Dashboard() {
           {!collapsed ? (
             <>
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white text-black"><VercelMark className="h-4 w-4" /></span>
-              <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold tracking-[-0.02em] text-white">Stuffing Processor</p><p className="truncate font-mono text-[10px] tracking-wide text-[#888]">BLC &amp; Akumulasi</p></div>
+              <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold tracking-[-0.02em] text-white">HOPE</p><p className="truncate font-mono text-[10px] tracking-wide text-[#888]">Help Out Purest Entity</p></div>
               <button
                 onClick={() => setCollapsed(!collapsed)}
                 aria-label="Ciutkan sidebar"
@@ -636,7 +636,7 @@ export default function Dashboard() {
             {activePage === 'pengaturan' && <PengaturanPage />}
 
             <footer className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-[#1f1f1f] py-4 font-mono text-xs tracking-[-0.01em] text-[#666]">
-              <span>© 2026 Stuffing Processor · BLC &amp; Akumulasi · Built with Vercel Geist · Force Dark</span>
+              <span>© 2026 HOPE · Help Out Purest Entity · Built with Vercel Geist · Force Dark</span>
             </footer>
           </div>
         </main>

@@ -1,7 +1,7 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Stuffing Processor — BLC & Akumulasi',
+  title: 'HOPE',
   description: 'Pengolahan BLC dari data JIT dan pengisian template akumulasi otomatis',
 };
 
