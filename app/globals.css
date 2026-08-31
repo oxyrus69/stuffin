@@ -701,3 +701,50 @@
 .truncate-150 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
 .truncate-180 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
 .truncate-200 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+
+/* ══════════════════════════════════════════════════════════════
+   SIDEBAR INSET (offset content from fixed sidebar)
+   ══════════════════════════════════════════════════════════════ */
+.sidebar-inset {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0%;
+  flex-direction: column;
+  background: #000;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   DEV MODE — Dark sidebar (matches dashboard)
+   ══════════════════════════════════════════════════════════════ */
+.sidebar-dev {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  border-right: 1px solid #1f1f1f;
+  transition: width 0.2s ease;
+  width: 220px;
+}
+
+@media (min-width: 768px) {
+  .sidebar-dev {
+    position: relative;
+  }
+}
+
+.sidebar-dev-collapsed {
+  width: 56px !important;
+}
+
+@media (max-width: 767px) {
+  .sidebar-dev {
+    transform: translateX(-100%);
+  }
+  .sidebar-dev-mobile-open {
+    transform: translateX(0);
+  }
+}

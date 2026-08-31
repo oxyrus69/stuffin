@@ -4,6 +4,25 @@ import { useState, useEffect, useRef } from 'react';
 import { processBlc, stageJitFiles, assembleFromSelection } from '../../lib/blcClient';
 import { fillAkumulasi, parseDailyFile, parseWorkbookAny, detectKind, diagnoseFile } from '../../lib/akumulasiClient';
 
+/* ── Arsip error — simpan file + log ke DB saat terjadi error ── */
+async function archiveOnError(files, page, errorMessage, errorStack) {
+  try {
+    const archiveGroup = crypto.randomUUID();
+    const formData = new FormData();
+    formData.append('archive_group', archiveGroup);
+    formData.append('page', page);
+    formData.append('error_message', errorMessage || '');
+    formData.append('error_stack', errorStack || '');
+    const fileList = files.filter(Boolean);
+    for (const f of fileList) {
+      formData.append('files', f);
+    }
+    const res = await fetch('/api/error-archive', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (data.success) console.info('[Error Archive]', data);
+  } catch (e) { console.error('[Archive] gagal:', e); }
+}
+
 /* ── Vercel Geist — icons (1.5 stroke, 16-18px) ── */
 const Icon = ({ d, className = 'h-[18px] w-[18px]' }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -180,7 +199,7 @@ function ProsesPage({ summary, setSummary }) {
       const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
       setStatus('success');
       setMessage(stuffingFile ? `Selesai — Blc ditimpa (${report.nbOrders} order) → ${filename}` : `Selesai — ${jitFiles.length} file → ${report.nbOrders} order → ${filename}`);
-    } catch (err) { console.error(err); setStatus('error'); setMessage(err.message || 'Gagal memproses.'); }
+    } catch (err) { console.error(err); archiveOnError([...jitFiles, stuffingFile], 'proses', err.message, err.stack); setStatus('error'); setMessage(err.message || 'Gagal memproses.'); }
   };
 
   const handleStage = async () => {
@@ -197,7 +216,7 @@ function ProsesPage({ summary, setSummary }) {
       setMessage('');
       if (result.warnings?.length) console.info('[BLC stage]', result.warnings);
       // jika tidak ada baris NB sama sekali, tetap tampilkan panel — user bisa centang manual
-    } catch (err) { console.error(err); setStatus('error'); setMessage(err.message || 'Gagal meninjau data.'); }
+    } catch (err) { console.error(err); archiveOnError(jitFiles, 'proses', err.message, err.stack); setStatus('error'); setMessage(err.message || 'Gagal meninjau data.'); }
   };
 
   const handleDownloadSelection = async () => {
@@ -652,6 +671,7 @@ function AkumulasiPage() {
       setStatus('success'); setErrorHelp(null); setShowTip(false); setMessage(`Selesai — ${out.filledCells} sel terisi di ${out.weeksFound} minggu → akumulasi.xlsx`);
     } catch (err) {
       console.error(err); if(err.rawDetail) console.warn(err.rawDetail);
+      archiveOnError([files.stt, files.ass].filter(Boolean), 'akumulasi', err.message, err.stack);
       setStatus('error'); setMessage(err.message||'Gagal memproses.'); if(err.help) setErrorHelp(err.help); else setErrorHelp({title:'Cek file', steps:['Pastikan file tidak rusak','Buka di Excel → Save As → .xlsx']});
     }
   };

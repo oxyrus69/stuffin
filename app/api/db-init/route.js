@@ -5,7 +5,6 @@ export const runtime = 'nodejs';
 
 export async function GET() {
   try {
-    // Create processing history table
     await sql`
       CREATE TABLE IF NOT EXISTS processing_history (
         id SERIAL PRIMARY KEY,
@@ -21,6 +20,31 @@ export async function GET() {
         status TEXT DEFAULT 'success',
         error_message TEXT
       )
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS error_archives (
+        id SERIAL PRIMARY KEY,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        archive_group TEXT NOT NULL,
+        page TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        file_size INTEGER,
+        file_bytes BYTEA NOT NULL,
+        error_message TEXT,
+        error_stack TEXT,
+        metadata JSONB DEFAULT '{}'::jsonb
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_error_archives_group ON error_archives(archive_group);
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_error_archives_created ON error_archives(created_at DESC);
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_error_archives_page ON error_archives(page);
     `;
 
     return NextResponse.json({ success: true, message: 'Database tables initialized.' });
