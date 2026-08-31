@@ -7,6 +7,8 @@
 @layer base {
   :root {
     --radius: 0.625rem;
+    --sidebar-width: 220px;
+    --sidebar-width-collapsed: 56px;
     --background: oklch(0.129 0.042 264.695);
     --foreground: oklch(0.984 0.003 247.858);
     --card: oklch(0.14 0.04 259.21);
@@ -157,14 +159,15 @@
 /* ══════════════════════════════════════════════════════════════
    LAYOUT — shadcn-admin SidebarInset pattern
    ══════════════════════════════════════════════════════════════ */
-.sidebar-inset {
-  margin-left: 14rem;
+ .sidebar-inset {
+  margin-left: var(--sidebar-width);
+  margin-left: 220px;
   min-height: 100svh;
   display: flex; flex-direction: column;
   background-color: var(--background);
 }
 @media (min-width: 768px) {
-  .sidebar-collapsed .sidebar-inset { margin-left: 3rem; }
+  .sidebar-collapsed .sidebar-inset { margin-left: var(--sidebar-width-collapsed); margin-left: 56px; }
 }
 .sidebar-layout { display: flex; height: 100svh; overflow: hidden; }
 
