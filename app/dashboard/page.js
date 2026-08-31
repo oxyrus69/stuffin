@@ -617,6 +617,9 @@ function AkumulasiPage() {
   const [errorHelp, setErrorHelp] = useState(null);
   const [showTip, setShowTip] = useState(false);
   const [summary, setSummary] = useState(null);
+  // Jam kerja per hari (default: 8 jam = 672 target, 9 jam = 768 target)
+  const [workHours, setWorkHours] = useState([8, 8, 8, 8, 8, 8]); // 6 hari per minggu
+  const TARGET_PER_HOUR = 84; // 672/8 = 84, 768/9 = 84
 
   const pick = (key) => async (e) => {
     const f = e.target.files?.[0];
@@ -664,7 +667,7 @@ function AkumulasiPage() {
       else if(k1!=='sew'||k2!=='ass'){ const err=new Error('Jenis file tidak sesuai.'); err.help={title:'Butuh 1 Sewing + 1 Assembling', steps:['Sewing: S01–S18 / T02/T03 / IP','Assembling: A01–A18','Tukar posisi upload atau cek di Excel']}; throw err; }
       setMessage('Mengunduh template…');
       const tplRes=await fetch('/akumulasi-template.xlsx'); if(!tplRes.ok) throw new Error('Template tidak tersedia.');
-      const out=fillAkumulasi(new Uint8Array(await tplRes.arrayBuffer()), sewParsed, assParsed);
+      const out=fillAkumulasi(new Uint8Array(await tplRes.arrayBuffer()), sewParsed, assParsed, workHours);
       setSummary({ cells: out.filledCells, weeks: out.weeksFound });
       const blob=new Blob([out.zip],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
       const url=window.URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='akumulasi.xlsx'; document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
@@ -677,8 +680,44 @@ function AkumulasiPage() {
   };
 
   const slots=[{key:'stt',label:'File STT',desc:'Output Sewing — STT *.XLS'},{key:'ass',label:'File ASS',desc:'Input Assembling — ASS *.XLS'}];
+
+  // Helper: format target display
+  const targetDisplay = (hours) => hours * TARGET_PER_HOUR;
+
   return (
     <div className="space-y-4">
+      {/* Working Hours Input */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="text-sm font-medium tracking-[-0.01em] text-white">Jam Kerja per Hari</p>
+            <p className="mt-0.5 text-xs leading-4 text-[#888]">Target = Jam × {TARGET_PER_HOUR} (8j = 672, 9j = 768)</p>
+          </div>
+          <button type="button" onClick={() => setWorkHours([8, 8, 8, 8, 8, 8])} className="text-xs text-[#888] hover:text-white transition-colors">Reset ke 8j</button>
+        </div>
+        <div className="grid grid-cols-3 gap-2 md:grid-cols-6">
+          {workHours.map((h, i) => (
+            <div key={i} className="flex flex-col items-center gap-1">
+              <span className="text-[10px] font-mono text-[#666] uppercase">Hari {i + 1}</span>
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => {
+                  const newHours = [...workHours];
+                  newHours[i] = Math.max(1, h - 1);
+                  setWorkHours(newHours);
+                }} className="h-6 w-6 flex items-center justify-center rounded border border-[#262626] bg-black text-[#888] hover:border-white hover:text-white text-xs">-</button>
+                <span className="w-8 text-center font-mono text-sm text-white">{h}j</span>
+                <button type="button" onClick={() => {
+                  const newHours = [...workHours];
+                  newHours[i] = Math.min(12, h + 1);
+                  setWorkHours(newHours);
+                }} className="h-6 w-6 flex items-center justify-center rounded border border-[#262626] bg-black text-[#888] hover:border-white hover:text-white text-xs">+</button>
+              </div>
+              <span className="text-[10px] font-mono text-[#4ade80]">{targetDisplay(h)}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+
       <ol className="grid grid-cols-1 gap-3 md:grid-cols-3">
         {[
           {n:'1',t:'Upload ASS & STT',d:'Laporan harian per line dari sistem.'},
