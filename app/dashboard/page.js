@@ -30,9 +30,7 @@ const Icon = ({ d, className = 'h-[18px] w-[18px]' }) => (
   </svg>
 );
 const VercelMark = ({ className = 'h-5 w-5' }) => (
-  <svg className={className} viewBox="0 0 76 65" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-    <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" fill="currentColor" />
-  </svg>
+  <img src="/hopev2.svg" alt="HOPE" className={className} style={{ objectFit: 'contain' }} />
 );
 const CollapseIcon = ({ collapsed }) => (
   <svg
@@ -617,9 +615,18 @@ function AkumulasiPage() {
   const [errorHelp, setErrorHelp] = useState(null);
   const [showTip, setShowTip] = useState(false);
   const [summary, setSummary] = useState(null);
-  // Jam kerja per hari (default: 8 jam = 672 target, 9 jam = 768 target)
+  // Jam kerja per hari (default: 8 jam = 672 target)
   const [workHours, setWorkHours] = useState([8, 8, 8, 8, 8, 8]); // 6 hari per minggu
-  const TARGET_PER_HOUR = 84; // 672/8 = 84, 768/9 = 84
+  const [calcMode, setCalcMode] = useState('regular'); // 'regular' | 'overtime'
+  const [showModeInfo, setShowModeInfo] = useState(false);
+  const REGULAR_RATE = 84;  // 672/8 = 84 pcs/hour
+  const OVERTIME_RATE = 96; // (768-672)/1 = 96 pcs/hour (lembur > 8j)
+  const calcTarget = (hours) => {
+    if (calcMode === 'overtime') {
+      return Math.round(Math.min(hours, 8) * REGULAR_RATE + Math.max(hours - 8, 0) * OVERTIME_RATE);
+    }
+    return Math.round(hours * REGULAR_RATE);
+  };
 
   const pick = (key) => async (e) => {
     const f = e.target.files?.[0];
@@ -667,7 +674,7 @@ function AkumulasiPage() {
       else if(k1!=='sew'||k2!=='ass'){ const err=new Error('Jenis file tidak sesuai.'); err.help={title:'Butuh 1 Sewing + 1 Assembling', steps:['Sewing: S01–S18 / T02/T03 / IP','Assembling: A01–A18','Tukar posisi upload atau cek di Excel']}; throw err; }
       setMessage('Mengunduh template…');
       const tplRes=await fetch('/akumulasi-template.xlsx'); if(!tplRes.ok) throw new Error('Template tidak tersedia.');
-      const out=fillAkumulasi(new Uint8Array(await tplRes.arrayBuffer()), sewParsed, assParsed, workHours);
+      const out=fillAkumulasi(new Uint8Array(await tplRes.arrayBuffer()), sewParsed, assParsed, workHours, calcMode);
       setSummary({ cells: out.filledCells, weeks: out.weeksFound });
       const blob=new Blob([out.zip],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
       const url=window.URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='akumulasi.xlsx'; document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
@@ -682,19 +689,48 @@ function AkumulasiPage() {
   const slots=[{key:'stt',label:'File STT',desc:'Output Sewing — STT *.XLS'},{key:'ass',label:'File ASS',desc:'Input Assembling — ASS *.XLS'}];
 
   // Helper: format target display
-  const targetDisplay = (hours) => hours * TARGET_PER_HOUR;
+  const targetDisplay = (hours) => calcTarget(hours);
 
   return (
     <div className="space-y-4">
       {/* Working Hours Input */}
       <Card className="p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-sm font-medium tracking-[-0.01em] text-white">Jam Kerja per Hari</p>
-            <p className="mt-0.5 text-xs leading-4 text-[#888]">Target = Jam × {TARGET_PER_HOUR} (8j = 672, 9j = 768)</p>
-          </div>
-          <button type="button" onClick={() => setWorkHours([8, 8, 8, 8, 8, 8])} className="text-xs text-[#888] hover:text-white transition-colors">Reset ke 8j</button>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm font-medium tracking-[-0.01em] text-white">Jam Kerja per Hari</p>
+          <button type="button" onClick={() => setWorkHours([8, 8, 8, 8, 8, 8])} className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-[#262626] bg-[#111] text-xs text-[#888] hover:border-white hover:text-white transition-colors">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 1 1 3 6.75"/><path d="M3 22v-6h6"/></svg>
+            Reset 8j
+          </button>
         </div>
+
+        {/* Mode Toggle + Info */}
+        <div className="flex items-center gap-2 mb-3">
+          <div className="flex rounded-md border border-[#262626] bg-[#0a0a0a] p-0.5">
+            <button type="button" onClick={() => setCalcMode('regular')}
+              className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${calcMode === 'regular' ? 'bg-white text-black shadow-sm' : 'text-[#888] hover:text-white'}`}>
+              Rate 84
+            </button>
+            <button type="button" onClick={() => setCalcMode('overtime')}
+              className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${calcMode === 'overtime' ? 'bg-white text-black shadow-sm' : 'text-[#888] hover:text-white'}`}>
+              Lembur (96)
+            </button>
+          </div>
+          <button type="button" onClick={() => setShowModeInfo(true)}
+            className="flex h-6 w-6 items-center justify-center rounded-full border border-[#262626] bg-[#111] text-[10px] font-bold text-[#666] hover:border-white hover:text-white transition-colors">
+            ?
+          </button>
+        </div>
+
+        {/* Formula Highlight */}
+        <div className="rounded-md border border-[#262626] bg-[#0a0a0a] px-3 py-2 mb-3">
+          <p className="font-mono text-xs text-[#4ade80]">
+            {calcMode === 'regular'
+              ? 'Target = Jam × 84 → 8j = 672, 8.5j = 714, 9j = 756'
+              : 'Target = min(j,8)×84 + lembur×96 → 8j=672, 8.5j=720, 9j=768'}
+          </p>
+        </div>
+
+        {/* Per Day Input */}
         <div className="grid grid-cols-3 gap-2 md:grid-cols-6">
           {workHours.map((h, i) => (
             <div key={i} className="flex flex-col items-center gap-1">
@@ -702,13 +738,13 @@ function AkumulasiPage() {
               <div className="flex items-center gap-1">
                 <button type="button" onClick={() => {
                   const newHours = [...workHours];
-                  newHours[i] = Math.max(1, h - 1);
+                  newHours[i] = Math.max(1, h - 0.5);
                   setWorkHours(newHours);
                 }} className="h-6 w-6 flex items-center justify-center rounded border border-[#262626] bg-black text-[#888] hover:border-white hover:text-white text-xs">-</button>
                 <span className="w-8 text-center font-mono text-sm text-white">{h}j</span>
                 <button type="button" onClick={() => {
                   const newHours = [...workHours];
-                  newHours[i] = Math.min(12, h + 1);
+                  newHours[i] = Math.min(12, h + 0.5);
                   setWorkHours(newHours);
                 }} className="h-6 w-6 flex items-center justify-center rounded border border-[#262626] bg-black text-[#888] hover:border-white hover:text-white text-xs">+</button>
               </div>
@@ -718,15 +754,6 @@ function AkumulasiPage() {
         </div>
       </Card>
 
-      <ol className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        {[
-          {n:'1',t:'Upload ASS & STT',d:'Laporan harian per line dari sistem.'},
-          {n:'2',t:'Template Otomatis',d:'Template bulan berjalan diambil dari server.'},
-          {n:'3',t:'Isi & Unduh',d:'Kolom Output per minggu diisi otomatis; Total dihitung ulang.'},
-        ].map(s=>(
-          <Card key={s.n} className="p-4"><StepNumber n={s.n} /><p className="mt-3 text-sm font-medium tracking-[-0.01em] text-white">{s.t}</p><p className="mt-1 text-xs leading-5 text-[#888]">{s.d}</p></Card>
-        ))}
-      </ol>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {slots.map(s=>(
           <label key={s.key} className={`group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border bg-[#0a0a0a] px-6 py-8 text-center transition-colors ${files[s.key] ? 'border-white bg-[#111]' : 'border-[#262626] hover:border-white hover:bg-[#111]'}`}>
@@ -770,6 +797,74 @@ function AkumulasiPage() {
         {ready && <VercelButton variant="secondary" onClick={()=>{setFiles({ass:null,stt:null}); setStatus('idle'); setMessage(''); setErrorHelp(null); setShowTip(false); setSummary(null);}}>Reset</VercelButton>}
         <VercelButton variant="primary" disabled={!ready || status==='processing'} onClick={handleProcess}>{status==='processing' ? 'Memproses…' : 'Isi Akumulasi & Unduh'}</VercelButton>
       </div>
+
+      {/* Mode Info Modal */}
+      {showModeInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setShowModeInfo(false)}>
+          <div className="mx-4 w-full max-w-lg rounded-xl border border-[#262626] bg-[#0a0a0a] p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-semibold text-white">Cara Menghitung Target</h3>
+              <button type="button" onClick={() => setShowModeInfo(false)} className="flex h-7 w-7 items-center justify-center rounded-md border border-[#262626] text-[#666] hover:text-white hover:border-white transition-colors">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Mode Rate 84 */}
+              <div className="rounded-lg border border-[#262626] bg-[#111] p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="inline-flex h-5 items-center rounded bg-white px-1.5 text-[10px] font-bold text-black">84</span>
+                  <span className="text-sm font-medium text-white">Rate 84</span>
+                  <span className="text-[10px] text-[#4ade80]">(Default)</span>
+                </div>
+                <p className="text-xs leading-5 text-[#888] mb-2">
+                  <strong className="text-white">Rumus:</strong> Target = Jam Kerja × 84
+                </p>
+                <div className="rounded-md bg-black p-2 font-mono text-xs text-[#4ade80]">
+                  8j × 84 = 672<br/>
+                  8.5j × 84 = 714<br/>
+                  9j × 84 = 756
+                </div>
+                <p className="mt-2 text-[11px] leading-4 text-[#666]">
+                  Cocok untuk standar pabrik dengan produksi tetap 84 pcs/jam. Rate sama untuk jam reguler maupun lembur.
+                </p>
+              </div>
+
+              {/* Mode Lembur */}
+              <div className="rounded-lg border border-[#262626] bg-[#111] p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="inline-flex h-5 items-center rounded bg-white px-1.5 text-[10px] font-bold text-black">96</span>
+                  <span className="text-sm font-medium text-white">Lembur (96)</span>
+                </div>
+                <p className="text-xs leading-5 text-[#888] mb-2">
+                  <strong className="text-white">Rumus:</strong> Target = min(j,8){'×'}84 + max(j-8,0){'×'}96
+                </p>
+                <div className="rounded-md bg-black p-2 font-mono text-xs text-[#4ade80]">
+                  {'8j = 8×84 = 672'}<br/>
+                  {'8.5j = 8×84 + 0.5×96 = 720'}<br/>
+                  {'9j = 8×84 + 1×96 = 768'}
+                </div>
+                <p className="mt-2 text-[11px] leading-4 text-[#666]">
+                  Jam pertama s/d 8 jam = 84 pcs/jam. Lembur (&gt;8 jam) = 96 pcs/jam (produksi lebih tinggi saat lembur).
+                </p>
+              </div>
+
+              {/* Contoh */}
+              <div className="rounded-lg border border-[#facc15]/20 bg-[#1a1a0a] p-4">
+                <p className="text-xs font-medium text-[#facc15] mb-1">💡 Contoh Penggunaan</p>
+                <p className="text-[11px] leading-4 text-[#facc15]/80">
+                  Jika hari ini 9 jam kerja (1 jam lembur), pilih mode <strong>Lembur (96)</strong> lalu set jam ke <strong>9j</strong>. Target akan otomatis <strong>768</strong>.<br/><br/>
+                  Jika semua hari 8 jam kerja biasa, pilih <strong>Rate 84</strong> lalu set semua ke <strong>8j</strong>. Target = <strong>672</strong> per hari.
+                </p>
+              </div>
+            </div>
+
+            <button type="button" onClick={() => setShowModeInfo(false)} className="mt-4 w-full rounded-md bg-white py-2 text-sm font-medium text-black hover:bg-[#e5e5e5] transition-colors">
+              Mengerti
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -863,7 +958,6 @@ export default function Dashboard() {
                 <h1 className="text-sm font-semibold tracking-[-0.02em] text-white">{active?.title}</h1>
                 <span className="hidden rounded-full border border-[#232323] bg-[#0a0a0a] px-2 py-0.5 font-mono text-[10px] font-medium tracking-wide text-[#888] md:inline-flex">{activePage.toUpperCase()}</span>
               </div>
-              <p className="hidden text-xs tracking-[-0.01em] text-[#888] md:block">Stuffing Processor · Otomatisasi BLC & Akumulasi</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -902,7 +996,7 @@ export default function Dashboard() {
         <main className="flex-1 overflow-y-auto bg-black">
           <div className="mx-auto max-w-[1160px] p-4 md:p-6">
             <div className="mb-4 flex items-center gap-1.5 font-mono text-xs text-[#666]">
-              <span className="inline-flex items-center gap-1.5 text-[#888]"><VercelMark className="h-3 w-3 text-white" /> stuffing</span>
+              <span className="inline-flex items-center gap-1.5 text-[#888]"><VercelMark className="h-3 w-3" /> HOPE</span>
               <span className="text-[#232323]">/</span>
               <span className="font-medium tracking-[-0.01em] text-white">{active?.title}</span>
             </div>

@@ -31,20 +31,29 @@ const NAV_ITEMS = [
   },
 ];
 
+const PAGE_TITLES = {
+  beranda: 'Overview',
+  proses: 'Proses BLC',
+  akumulasi: 'Akumulasi',
+  riwayat: 'Riwayat',
+  referensi: 'Referensi',
+  panduan: 'Panduan',
+  pengaturan: 'Pengaturan',
+};
+
 export default function Sidebar({ activePage, onNavigate, collapsed, onToggleCollapse, onLogout }) {
+  const pageTitle = PAGE_TITLES[activePage] || 'Overview';
   return (
     <aside className="sidebar" style={{ width: collapsed ? 68 : 260 }}>
       {/* ── Brand ── */}
       <div className="sidebar-brand" style={{ justifyContent: collapsed ? 'center' : 'flex-start' }}>
         <div className="sidebar-brand-icon">
-          <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" />
-          </svg>
+          <img src="/hopev2.svg" alt="HOPE" className="w-5 h-5" style={{ objectFit: 'contain' }} />
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <p className="text-[13px] font-bold text-white leading-tight">Stuffing</p>
-            <p className="text-[10px] text-slate-500 leading-tight">Data Processor</p>
+            <p className="text-[13px] font-bold text-white leading-tight">{pageTitle}</p>
+            <p className="text-[10px] text-slate-500 leading-tight">HOPE Dashboard</p>
           </div>
         )}
       </div>
