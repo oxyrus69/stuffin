@@ -692,7 +692,7 @@ function AkumulasiPage() {
       for (const code of allCodes) init[code] = [8,8,8,8,8,8];
       setLineHours(init);
       setPreview({ sewParsed, assParsed, lineList: allCodes });
-      setStatus('idle'); setMessage(`Preview siap — ${allCodes.length} line terdeteksi. Atur jam per line di bawah, lalu Unduh.`);
+      setStatus('idle'); setMessage('');
     } catch (err) {
       console.error(err); if(err.rawDetail) console.warn(err.rawDetail);
       archiveOnError([files.stt, files.ass].filter(Boolean), 'akumulasi', err.message, err.stack);
@@ -1100,7 +1100,6 @@ export default function Dashboard() {
             >
               <Icon d={item.icon} className={`h-[18px] w-[18px] shrink-0 ${activePage === item.id ? 'text-black' : 'text-[#666] group-hover:text-white'}`} />
               {!collapsed && <span className="flex-1 truncate font-medium">{item.label}</span>}
-              {!collapsed && !['beranda','proses','akumulasi'].includes(item.id) && <BadgeSoon />}
             </button>
           ))}
         </nav>
