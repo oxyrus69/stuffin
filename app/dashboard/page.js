@@ -3,24 +3,34 @@
 import { useState, useEffect, useRef } from 'react';
 import { processBlc, stageJitFiles, assembleFromSelection } from '../../lib/blcClient';
 import { fillAkumulasi, parseDailyFile, parseWorkbookAny, detectKind, diagnoseFile } from '../../lib/akumulasiClient';
+import { queuePendingArchive, syncPendingArchives, getPendingCount } from '../../lib/offlineQueue';
 
-/* ── Arsip error — simpan file + log ke DB saat terjadi error ── */
+/* ── Arsip error — simpan file + log ke DB saat terjadi error (offline-aware) ── */
 async function archiveOnError(files, page, errorMessage, errorStack) {
+  const fileList = files.filter(Boolean);
+  if (!fileList.length) return;
+  // jika offline, langsung queue
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    const r = await queuePendingArchive(fileList, page, errorMessage, errorStack);
+    if (r.queued) console.info('[Archive] offline → queued', r.archiveGroup);
+    return;
+  }
   try {
-    const archiveGroup = crypto.randomUUID();
+    const archiveGroup = (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const formData = new FormData();
     formData.append('archive_group', archiveGroup);
     formData.append('page', page);
     formData.append('error_message', errorMessage || '');
     formData.append('error_stack', errorStack || '');
-    const fileList = files.filter(Boolean);
-    for (const f of fileList) {
-      formData.append('files', f);
-    }
+    for (const f of fileList) formData.append('files', f);
     const res = await fetch('/api/error-archive', { method: 'POST', body: formData });
+    if (!res.ok) throw new Error('archive failed');
     const data = await res.json();
     if (data.success) console.info('[Error Archive]', data);
-  } catch (e) { console.error('[Archive] gagal:', e); }
+  } catch (e) {
+    console.warn('[Archive] gagal, queue offline', e);
+    try { await queuePendingArchive(fileList, page, errorMessage, errorStack); } catch {}
+  }
 }
 
 /* ── Vercel Geist — icons (1.5 stroke, 16-18px) ── */
@@ -618,7 +628,8 @@ function AkumulasiPage() {
   const [calcMode, setCalcMode] = useState('regular'); // 'regular' | 'overtime'
   const [showModeInfo, setShowModeInfo] = useState(false);
   const [preview, setPreview] = useState(null); // { sewParsed, assParsed, lineList }
-  const [lineHours, setLineHours] = useState({}); // { [lineCode]: hours } — prioritas per-line
+  const [lineHours, setLineHours] = useState({}); // { [lineCode]: [6] per-Hari }
+  const [lineSearch, setLineSearch] = useState('');
   const REGULAR_RATE = 84;
   const OVERTIME_RATE = 96;
   const calcTarget = (hours) => {
@@ -635,7 +646,7 @@ function AkumulasiPage() {
     if (!['xlsx','xls','htm','html'].includes(ext)) {
       setStatus('error'); setMessage('Format tidak didukung.'); setErrorHelp({ title: 'Format file', steps: ['Gunakan .XLS / .XLSX hasil export.', 'Jika .XLS gagal, buka di Excel → Save As → Excel Workbook (*.xlsx).'] }); e.target.value=''; return;
     }
-    setFiles((p) => ({ ...p, [key]: f })); setPreview(null); setLineHours({}); setStatus('idle'); setMessage(''); setErrorHelp(null); setShowTip(false); setSummary(null); e.target.value='';
+    setFiles((p) => ({ ...p, [key]: f })); setPreview(null); setLineHours({}); setLineSearch(''); setStatus('idle'); setMessage(''); setErrorHelp(null); setShowTip(false); setSummary(null); e.target.value='';
   };
   const ready = files.ass && files.stt;
   const parseFiles = async () => {
@@ -823,6 +834,12 @@ function AkumulasiPage() {
                 <button type="button" onClick={() => setLineHours(Object.fromEntries(preview.lineList.map(k => [k, [8,8,8,8,8,8]])))} className="flex-1 py-1.5 rounded border border-[#262626] bg-black text-xs text-[#888]">Semua 8j</button>
                 <button type="button" onClick={() => setLineHours(Object.fromEntries(preview.lineList.map(k => [k, [9,9,9,9,9,9]])))} className="flex-1 py-1.5 rounded border border-[#262626] bg-black text-xs text-[#888]">Semua 9j</button>
               </div>
+              {/* Kolom pencarian line */}
+              <div className="mt-3 relative">
+                <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#555]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+                <input type="text" value={lineSearch} onChange={(e) => setLineSearch(e.target.value)} placeholder="Cari line… (mis. S01, A05, IP, T02)" className="w-full rounded-md border border-[#262626] bg-[#111] pl-8 pr-8 py-1.5 text-xs text-white placeholder-[#666] focus:border-white focus:outline-none" />
+                {lineSearch && <button type="button" onClick={() => setLineSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded text-[#666] hover:text-white">✕</button>}
+              </div>
             </div>
 
             <div className="overflow-auto max-h-[420px]">
@@ -835,7 +852,14 @@ function AkumulasiPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#1f1f1f]">
-                  {preview.lineList.map(code => {
+                  {(() => {
+                    const q = lineSearch.trim().toLowerCase();
+                    const filtered = q ? preview.lineList.filter(code => {
+                      const lbl = (preview.sewParsed.lines.get(code)?.label || preview.assParsed.lines.get(code)?.label || '').toLowerCase();
+                      return code.toLowerCase().includes(q) || lbl.includes(q);
+                    }) : preview.lineList;
+                    if (filtered.length === 0) return <tr><td colSpan={8} className="px-3 py-10 text-center text-xs text-[#666]">Tidak ada line cocok “{lineSearch}”</td></tr>;
+                    return filtered.map(code => {
                     const arr = lineHours[code] || [8,8,8,8,8,8];
                     const isArr = Array.isArray(arr);
                     const vals = isArr ? arr : Array(6).fill(arr);
@@ -870,12 +894,12 @@ function AkumulasiPage() {
                         </td>
                       </tr>
                     );
-                  })}
+                  }); })()}
                 </tbody>
               </table>
             </div>
             <div className="px-3 py-2.5 bg-[#0a0a0a] border-t border-[#1f1f1f] flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[11px] leading-4 text-[#666]">Contoh: <b className="text-[#888]">S01 H1 8j, H2 9j</b> → S01 besok otomatis 9j, lusa kembali 8j. Garis hijau = 9j.</span>
+              <span className="text-[11px] leading-4 text-[#666]">Contoh: <b className="text-[#888]">S01 H1 8j, H2 9j</b> → S01 besok otomatis 9j. Garis hijau = 9j. {lineSearch && `• Filter: ${(() => { const q=lineSearch.trim().toLowerCase(); const f=preview.lineList.filter(c=>c.toLowerCase().includes(q)||(preview.sewParsed.lines.get(c)?.label||preview.assParsed.lines.get(c)?.label||'').toLowerCase().includes(q)).length; return `${f}/${preview.lineList.length}`; })()}`}</span>
               <span className="text-[10px] font-mono px-2 py-1 rounded bg-[#111] border border-[#1f1f1f] text-[#555]">{preview.lineList.length} line × 6 hari</span>
             </div>
           </Card>
@@ -911,12 +935,12 @@ function AkumulasiPage() {
       {summary && <div className="grid grid-cols-2 gap-3"><div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-3 text-center"><p className="font-mono text-[10px] uppercase tracking-widest text-[#888]">Sel Terisi</p><p className="mt-1 text-sm font-semibold tracking-[-0.02em] text-white">{summary.cells}</p></div><div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-3 text-center"><p className="font-mono text-[10px] uppercase tracking-widest text-[#888]">Blok Minggu</p><p className="mt-1 text-sm font-semibold tracking-[-0.02em] text-white">{summary.weeks}</p></div></div>}
 
       <div className="flex items-center justify-end gap-2">
-        {ready && <VercelButton variant="secondary" onClick={()=>{setFiles({ass:null,stt:null}); setPreview(null); setLineHours({}); setStatus('idle'); setMessage(''); setErrorHelp(null); setShowTip(false); setSummary(null);}}>Reset</VercelButton>}
+        {ready && <VercelButton variant="secondary" onClick={()=>{setFiles({ass:null,stt:null}); setPreview(null); setLineHours({}); setLineSearch(''); setStatus('idle'); setMessage(''); setErrorHelp(null); setShowTip(false); setSummary(null);}}>Reset</VercelButton>}
         {!preview ? (
           <VercelButton variant="primary" disabled={!ready || status==='processing'} onClick={handlePreview}>{status==='processing' ? 'Memproses…' : 'Pratinjau & Atur Jam'}</VercelButton>
         ) : (
           <>
-            <VercelButton variant="secondary" onClick={()=>{setPreview(null); setStatus('idle'); setMessage('');}}>Tutup Preview</VercelButton>
+            <VercelButton variant="secondary" onClick={()=>{setPreview(null); setLineSearch(''); setStatus('idle'); setMessage('');}}>Tutup Preview</VercelButton>
             <VercelButton variant="primary" disabled={status==='processing'} onClick={handleDownload}>{status==='processing' ? 'Memproses…' : `Isi Akumulasi & Unduh (${Object.keys(lineHours).length} line)`}</VercelButton>
           </>
         )}
@@ -1004,6 +1028,8 @@ export default function Dashboard() {
   const [today, setToday] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef(null);
+  const [isOnline, setIsOnline] = useState(true);
+  const [pendingCount, setPendingCount] = useState(0);
   useEffect(() => { setToday(new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())); }, []);
   useEffect(() => {
     const onClickOutside = (e) => {
@@ -1012,6 +1038,18 @@ export default function Dashboard() {
     if (profileOpen) document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, [profileOpen]);
+  useEffect(() => {
+    if (typeof navigator !== 'undefined') setIsOnline(navigator.onLine);
+    const onOnline = async () => {
+      setIsOnline(true);
+      try { const r = await syncPendingArchives(); const c = await getPendingCount(); setPendingCount(c); if (r.synced > 0) console.info(`[offline] synced ${r.synced}`); } catch {}
+    };
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    getPendingCount().then(setPendingCount).catch(()=>{});
+    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
+  }, []);
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -1116,6 +1154,18 @@ export default function Dashboard() {
             </div>
           </div>
         </header>
+
+        {!isOnline && (
+          <div className="sticky top-0 z-10 flex items-center justify-center gap-2 bg-amber-500/10 border-b border-amber-500/20 px-3 py-2 text-xs font-medium text-amber-200">
+            <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" /> Offline — tetap bisa proses file. Arsip error {pendingCount > 0 ? `• ${pendingCount} tertunda, akan sinkron saat online` : 'akan di-queue saat online'}
+          </div>
+        )}
+        {isOnline && pendingCount > 0 && (
+          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-[#0a1a0a] border-b border-[#1a3a1a] px-3 py-2 text-xs">
+            <span className="text-[#4ade80] font-medium">{pendingCount} arsip offline siap sinkron</span>
+            <button onClick={async()=>{ const r=await syncPendingArchives(); setPendingCount(await getPendingCount()); if(r.synced>0) alert(`${r.synced} arsip berhasil disinkronkan`); }} className="px-3 py-1 rounded-md border border-[#1a3a1a] bg-black text-[#4ade80] hover:bg-[#111]">Sync sekarang</button>
+          </div>
+        )}
 
         <main className="flex-1 overflow-y-auto bg-black">
           <div className="mx-auto max-w-[1160px] p-4 md:p-6">
