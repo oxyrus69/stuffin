@@ -607,7 +607,7 @@ function PengaturanPage() {
   );
 }
 
-/* ── Akumulasi ── */
+/* ── Akumulasi — flow ideal: upload → preview spreadsheet → atur per-line 8/9 jam ── */
 function AkumulasiPage() {
   const [files, setFiles] = useState({ ass: null, stt: null });
   const [status, setStatus] = useState('idle');
@@ -615,25 +615,17 @@ function AkumulasiPage() {
   const [errorHelp, setErrorHelp] = useState(null);
   const [showTip, setShowTip] = useState(false);
   const [summary, setSummary] = useState(null);
-  // Jam kerja per hari (default: 8 jam = 672 target)
-  const [workHours, setWorkHours] = useState([8, 8, 8, 8, 8, 8]); // 6 hari per minggu — mode global
-  const [weeklyHours, setWeeklyHours] = useState(null); // null = pakai global, atau [[6],[6],...] 5 minggu
-  const [hoursMode, setHoursMode] = useState('global'); // 'global' | 'weekly'
   const [calcMode, setCalcMode] = useState('regular'); // 'regular' | 'overtime'
   const [showModeInfo, setShowModeInfo] = useState(false);
-  const REGULAR_RATE = 84;  // 672/8 = 84 pcs/hour
-  const OVERTIME_RATE = 96; // (768-672)/1 = 96 pcs/hour (lembur > 8j)
+  const [preview, setPreview] = useState(null); // { sewParsed, assParsed, lineList }
+  const [lineHours, setLineHours] = useState({}); // { [lineCode]: hours } — prioritas per-line
+  const REGULAR_RATE = 84;
+  const OVERTIME_RATE = 96;
   const calcTarget = (hours) => {
     if (calcMode === 'overtime') {
       return Math.round(Math.min(hours, 8) * REGULAR_RATE + Math.max(hours - 8, 0) * OVERTIME_RATE);
     }
     return Math.round(hours * REGULAR_RATE);
-  };
-  const ensureWeekly = () => {
-    if (weeklyHours) return weeklyHours;
-    const base = Array.from({ length: 5 }, () => [...workHours]);
-    setWeeklyHours(base);
-    return base;
   };
 
   const pick = (key) => async (e) => {
@@ -643,47 +635,66 @@ function AkumulasiPage() {
     if (!['xlsx','xls','htm','html'].includes(ext)) {
       setStatus('error'); setMessage('Format tidak didukung.'); setErrorHelp({ title: 'Format file', steps: ['Gunakan .XLS / .XLSX hasil export.', 'Jika .XLS gagal, buka di Excel → Save As → Excel Workbook (*.xlsx).'] }); e.target.value=''; return;
     }
-    setFiles((p) => ({ ...p, [key]: f })); setStatus('idle'); setMessage(''); setErrorHelp(null); setShowTip(false); e.target.value='';
+    setFiles((p) => ({ ...p, [key]: f })); setPreview(null); setLineHours({}); setStatus('idle'); setMessage(''); setErrorHelp(null); setShowTip(false); setSummary(null); e.target.value='';
   };
   const ready = files.ass && files.stt;
-  const handleProcess = async () => {
-    if (!ready) return;
-    setStatus('processing'); setErrorHelp(null); setShowTip(false); setMessage('Memproses akumulasi…');
+  const parseFiles = async () => {
+    const read = async (f) => new Uint8Array(await f.arrayBuffer());
+    let sewParsed, assParsed;
     try {
-      const read = async (f) => new Uint8Array(await f.arrayBuffer());
-      let sewParsed, assParsed;
+      const [sttBytes, assBytes] = await Promise.all([read(files.stt), read(files.ass)]);
+      sewParsed = parseDailyFile(sttBytes); assParsed = parseDailyFile(assBytes);
+      if (sewParsed.lines.size===0) { const alt=parseDailyFile(parseWorkbookAny(sttBytes)); if(alt.lines.size>0) sewParsed=alt; }
+      if (assParsed.lines.size===0) { const alt=parseDailyFile(parseWorkbookAny(assBytes)); if(alt.lines.size>0) assParsed=alt; }
+    } catch (e) { throw new Error(`Gagal membaca file: ${e.message}`); }
+    if (sewParsed.lines.size===0 || assParsed.lines.size===0) {
+      let isFrameset=false, rawDetail='';
       try {
-        const [sttBytes, assBytes] = await Promise.all([read(files.stt), read(files.ass)]);
-        sewParsed = parseDailyFile(sttBytes); assParsed = parseDailyFile(assBytes);
-        if (sewParsed.lines.size===0) { const alt=parseDailyFile(parseWorkbookAny(sttBytes)); if(alt.lines.size>0) sewParsed=alt; }
-        if (assParsed.lines.size===0) { const alt=parseDailyFile(parseWorkbookAny(assBytes)); if(alt.lines.size>0) assParsed=alt; }
-      } catch (e) { throw new Error(`Gagal membaca file: ${e.message}`); }
-      if (sewParsed.lines.size===0 || assParsed.lines.size===0) {
-        let isFrameset=false, rawDetail='';
-        try {
-          const [sttBytes2, assBytes2] = await Promise.all([read(files.stt), read(files.ass)]);
-          const dStt=diagnoseFile(sttBytes2), dAss=diagnoseFile(assBytes2);
-          rawDetail=JSON.stringify({stt:dStt,ass:dAss});
-          const frameHint=(d)=>d.isFrameset&&d.hasSheet001Ref;
-          isFrameset=frameHint(dStt)||frameHint(dAss);
-          console.warn('[Akumulasi diagnose]',{stt:dStt,ass:dAss});
-        } catch(e){ rawDetail=e.message; }
-        if(isFrameset){
-          const err=new Error('File .XLS tidak bisa dibaca langsung.');
-          err.help={ title:'File tersimpan sebagai “Web Page”', steps:['Buka file .XLS di Excel','File → Save As','Ganti type ke Excel Workbook (*.xlsx)','Simpan & upload .xlsx baru'], note:'Atau upload sheet001.htm dari folder *_files.' };
-          err.rawDetail=rawDetail; throw err;
-        }
-        const err2=new Error('Format tabel tidak dikenali.');
-        err2.help={ title:'Pastikan format ASS/STT', steps:['Tabel harus punya LineNo | Line | D1…D31 + Total','Jangan ubah header','Coba Save As → .xlsx lalu upload ulang'] };
-        err2.rawDetail=rawDetail; throw err2;
+        const [sttBytes2, assBytes2] = await Promise.all([read(files.stt), read(files.ass)]);
+        const dStt=diagnoseFile(sttBytes2), dAss=diagnoseFile(assBytes2);
+        rawDetail=JSON.stringify({stt:dStt,ass:dAss});
+        const frameHint=(d)=>d.isFrameset&&d.hasSheet001Ref;
+        isFrameset=frameHint(dStt)||frameHint(dAss);
+        console.warn('[Akumulasi diagnose]',{stt:dStt,ass:dAss});
+      } catch(e){ rawDetail=e.message; }
+      if(isFrameset){
+        const err=new Error('File .XLS tidak bisa dibaca langsung.');
+        err.help={ title:'File tersimpan sebagai “Web Page”', steps:['Buka file .XLS di Excel','File → Save As','Ganti type ke Excel Workbook (*.xlsx)','Simpan & upload .xlsx baru'], note:'Atau upload sheet001.htm dari folder *_files.' };
+        err.rawDetail=rawDetail; throw err;
       }
-      const k1=detectKind(sewParsed), k2=detectKind(assParsed);
-      if(k1==='ass'&&k2==='sew') [sewParsed,assParsed]=[assParsed,sewParsed];
-      else if(k1!=='sew'||k2!=='ass'){ const err=new Error('Jenis file tidak sesuai.'); err.help={title:'Butuh 1 Sewing + 1 Assembling', steps:['Sewing: S01–S18 / T02/T03 / IP','Assembling: A01–A18','Tukar posisi upload atau cek di Excel']}; throw err; }
-      setMessage('Mengunduh template…');
+      const err2=new Error('Format tabel tidak dikenali.');
+      err2.help={ title:'Pastikan format ASS/STT', steps:['Tabel harus punya LineNo | Line | D1…D31 + Total','Jangan ubah header','Coba Save As → .xlsx lalu upload ulang'] };
+      err2.rawDetail=rawDetail; throw err2;
+    }
+    const k1=detectKind(sewParsed), k2=detectKind(assParsed);
+    if(k1==='ass'&&k2==='sew') [sewParsed,assParsed]=[assParsed,sewParsed];
+    else if(k1!=='sew'||k2!=='ass'){ const err=new Error('Jenis file tidak sesuai.'); err.help={title:'Butuh 1 Sewing + 1 Assembling', steps:['Sewing: S01–S18 / T02/T03 / IP','Assembling: A01–A18','Tukar posisi upload atau cek di Excel']}; throw err; }
+    return { sewParsed, assParsed };
+  };
+  const handlePreview = async () => {
+    if (!ready) return;
+    setStatus('processing'); setErrorHelp(null); setShowTip(false); setMessage('Membaca file & menyiapkan preview…');
+    try {
+      const { sewParsed, assParsed } = await parseFiles();
+      const allCodes = [...sewParsed.lines.keys(), ...assParsed.lines.keys()].sort();
+      const init = {};
+      for (const code of allCodes) init[code] = 8;
+      setLineHours(init);
+      setPreview({ sewParsed, assParsed, lineList: allCodes });
+      setStatus('idle'); setMessage(`Preview siap — ${allCodes.length} line terdeteksi. Atur jam per line di bawah, lalu Unduh.`);
+    } catch (err) {
+      console.error(err); if(err.rawDetail) console.warn(err.rawDetail);
+      archiveOnError([files.stt, files.ass].filter(Boolean), 'akumulasi', err.message, err.stack);
+      setStatus('error'); setMessage(err.message||'Gagal memproses.'); if(err.help) setErrorHelp(err.help); else setErrorHelp({title:'Cek file', steps:['Pastikan file tidak rusak','Buka di Excel → Save As → .xlsx']});
+    }
+  };
+  const handleDownload = async () => {
+    if (!ready || !preview) return;
+    setStatus('processing'); setErrorHelp(null); setShowTip(false); setMessage('Mengisi template akumulasi…');
+    try {
+      const { sewParsed, assParsed } = preview;
       const tplRes=await fetch('/akumulasi-template.xlsx'); if(!tplRes.ok) throw new Error('Template tidak tersedia.');
-      const hoursToSend = hoursMode === 'weekly' && weeklyHours ? weeklyHours : workHours;
-      const out=fillAkumulasi(new Uint8Array(await tplRes.arrayBuffer()), sewParsed, assParsed, hoursToSend, calcMode);
+      const out=fillAkumulasi(new Uint8Array(await tplRes.arrayBuffer()), sewParsed, assParsed, [8,8,8,8,8,8], calcMode, lineHours);
       setSummary({ cells: out.filledCells, weeks: out.weeksFound });
       const blob=new Blob([out.zip],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
       const url=window.URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='akumulasi.xlsx'; document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
@@ -694,6 +705,8 @@ function AkumulasiPage() {
       setStatus('error'); setMessage(err.message||'Gagal memproses.'); if(err.help) setErrorHelp(err.help); else setErrorHelp({title:'Cek file', steps:['Pastikan file tidak rusak','Buka di Excel → Save As → .xlsx']});
     }
   };
+  // legacy single-step fallback (jika belum preview tapi langsung unduh)
+  const handleProcess = handlePreview;
 
   const slots=[{key:'stt',label:'File STT',desc:'Output Sewing — STT *.XLS'},{key:'ass',label:'File ASS',desc:'Input Assembling — ASS *.XLS'}];
 
@@ -702,128 +715,20 @@ function AkumulasiPage() {
 
   return (
     <div className="space-y-4">
-      {/* Working Hours Input */}
+      {/* Mode Target */}
       <Card className="p-4">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-medium tracking-[-0.01em] text-white">Jam Kerja per Hari</p>
-          <button type="button" onClick={() => setWorkHours([8, 8, 8, 8, 8, 8])} className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-[#262626] bg-[#111] text-xs text-[#888] hover:border-white hover:text-white transition-colors">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 1 1 3 6.75"/><path d="M3 22v-6h6"/></svg>
-            Reset 8j
-          </button>
+          <p className="text-sm font-medium tracking-[-0.01em] text-white">Mode Target</p>
+          <button type="button" onClick={() => setShowModeInfo(true)} className="flex h-6 w-6 items-center justify-center rounded-full border border-[#262626] bg-[#111] text-[10px] font-bold text-[#666] hover:border-white hover:text-white">?</button>
         </div>
-
-        {/* Mode Toggle + Info */}
-        <div className="flex items-center gap-2 mb-3">
-          <div className="flex rounded-md border border-[#262626] bg-[#0a0a0a] p-0.5">
-            <button type="button" onClick={() => setCalcMode('regular')}
-              className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${calcMode === 'regular' ? 'bg-white text-black shadow-sm' : 'text-[#888] hover:text-white'}`}>
-              Rate 84
-            </button>
-            <button type="button" onClick={() => setCalcMode('overtime')}
-              className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${calcMode === 'overtime' ? 'bg-white text-black shadow-sm' : 'text-[#888] hover:text-white'}`}>
-              Lembur (96)
-            </button>
-          </div>
-          <button type="button" onClick={() => setShowModeInfo(true)}
-            className="flex h-6 w-6 items-center justify-center rounded-full border border-[#262626] bg-[#111] text-[10px] font-bold text-[#666] hover:border-white hover:text-white transition-colors">
-            ?
-          </button>
+        <div className="flex rounded-md border border-[#262626] bg-[#0a0a0a] p-0.5 w-fit mb-3">
+          <button type="button" onClick={() => setCalcMode('regular')} className={`px-3 py-1.5 rounded text-xs font-medium ${calcMode === 'regular' ? 'bg-white text-black' : 'text-[#888] hover:text-white'}`}>Rate 84</button>
+          <button type="button" onClick={() => setCalcMode('overtime')} className={`px-3 py-1.5 rounded text-xs font-medium ${calcMode === 'overtime' ? 'bg-white text-black' : 'text-[#888] hover:text-white'}`}>Lembur (96)</button>
         </div>
-
-        {/* Formula Highlight */}
-        <div className="rounded-md border border-[#262626] bg-[#0a0a0a] px-3 py-2 mb-3">
-          <p className="font-mono text-xs text-[#4ade80]">
-            {calcMode === 'regular'
-              ? 'Target = Jam × 84 → 8j = 672, 8.5j = 714, 9j = 756'
-              : 'Target = min(j,8)×84 + lembur×96 → 8j=672, 8.5j=720, 9j=768'}
-          </p>
+        <div className="rounded-md border border-[#262626] bg-[#0a0a0a] px-3 py-2">
+          <p className="font-mono text-xs text-[#4ade80]">{calcMode === 'regular' ? 'Target = Jam × 84 → 8j = 672, 8.5j = 714, 9j = 756' : 'Target = min(j,8)×84 + lembur×96 → 8j=672, 8.5j=720, 9j=768'}</p>
         </div>
-
-        {/* Mode Global vs Per-Minggu */}
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex rounded-md border border-[#262626] bg-[#0a0a0a] p-0.5">
-            <button type="button" onClick={() => setHoursMode('global')}
-              className={`px-3 py-1 rounded text-xs font-medium transition-all ${hoursMode === 'global' ? 'bg-white text-black' : 'text-[#888] hover:text-white'}`}>Global (6 Hari)</button>
-            <button type="button" onClick={() => { ensureWeekly(); setHoursMode('weekly'); }}
-              className={`px-3 py-1 rounded text-xs font-medium transition-all ${hoursMode === 'weekly' ? 'bg-white text-black' : 'text-[#888] hover:text-white'}`}>Per-Minggu</button>
-          </div>
-          {hoursMode === 'global' ? (
-            <span className="text-[10px] font-mono text-[#666]">Berlaku semua minggu</span>
-          ) : (
-            <button type="button" onClick={() => setWeeklyHours(Array.from({ length: 5 }, () => [...workHours]))}
-              className="text-[10px] font-mono text-[#888] hover:text-white underline decoration-dotted">Salin Global ke semua minggu</button>
-          )}
-        </div>
-
-        {hoursMode === 'global' ? (
-          <div className="grid grid-cols-3 gap-2 md:grid-cols-6">
-            {workHours.map((h, i) => (
-              <div key={i} className="flex flex-col items-center gap-1">
-                <span className="text-[10px] font-mono text-[#666] uppercase">Hari {i + 1}</span>
-                <div className="flex items-center gap-1">
-                  <button type="button" onClick={() => {
-                    const newHours = [...workHours];
-                    newHours[i] = Math.max(1, h - 0.5);
-                    setWorkHours(newHours);
-                    if (weeklyHours) setWeeklyHours(null);
-                  }} className="h-6 w-6 flex items-center justify-center rounded border border-[#262626] bg-black text-[#888] hover:border-white hover:text-white text-xs">-</button>
-                  <span className="w-8 text-center font-mono text-sm text-white">{h}j</span>
-                  <button type="button" onClick={() => {
-                    const newHours = [...workHours];
-                    newHours[i] = Math.min(12, h + 0.5);
-                    setWorkHours(newHours);
-                    if (weeklyHours) setWeeklyHours(null);
-                  }} className="h-6 w-6 flex items-center justify-center rounded border border-[#262626] bg-black text-[#888] hover:border-white hover:text-white text-xs">+</button>
-                </div>
-                <span className="text-[10px] font-mono text-[#4ade80]">{targetDisplay(h)}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {(weeklyHours || Array.from({ length: 5 }, () => [...workHours])).map((week, wi) => (
-              <div key={wi} className="rounded-lg border border-[#262626] bg-black p-2.5">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-white">Minggu {wi + 1}</span>
-                  <div className="flex items-center gap-1">
-                    <button type="button" onClick={() => {
-                      const base = weeklyHours ? [...weeklyHours] : Array.from({ length: 5 }, () => [...workHours]);
-                      base[wi] = [...workHours];
-                      setWeeklyHours(base);
-                    }} className="text-[10px] px-2 py-1 rounded border border-[#262626] text-[#666] hover:text-white hover:border-white">Ikut Global</button>
-                    <button type="button" onClick={() => {
-                      const base = weeklyHours ? [...weeklyHours] : Array.from({ length: 5 }, () => [...workHours]);
-                      base[wi] = [8,8,8,8,8,8];
-                      setWeeklyHours(base);
-                    }} className="text-[10px] px-2 py-1 rounded border border-[#262626] text-[#666] hover:text-white hover:border-white">Reset 8j</button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-1.5 md:grid-cols-6">
-                  {week.map((h, di) => (
-                    <div key={di} className="flex flex-col items-center gap-1 rounded border border-[#1f1f1f] bg-[#0a0a0a] py-2">
-                      <span className="text-[9px] font-mono text-[#666]">H{di + 1}</span>
-                      <div className="flex items-center gap-1">
-                        <button type="button" onClick={() => {
-                          const base = weeklyHours ? weeklyHours.map(r => [...r]) : Array.from({ length: 5 }, () => [...workHours]);
-                          base[wi][di] = Math.max(1, h - 0.5);
-                          setWeeklyHours(base);
-                        }} className="h-5 w-5 flex items-center justify-center rounded border border-[#262626] bg-black text-[#888] hover:border-white hover:text-white text-[10px]">-</button>
-                        <span className="w-7 text-center font-mono text-xs text-white">{h}j</span>
-                        <button type="button" onClick={() => {
-                          const base = weeklyHours ? weeklyHours.map(r => [...r]) : Array.from({ length: 5 }, () => [...workHours]);
-                          base[wi][di] = Math.min(12, h + 0.5);
-                          setWeeklyHours(base);
-                        }} className="h-5 w-5 flex items-center justify-center rounded border border-[#262626] bg-black text-[#888] hover:border-white hover:text-white text-[10px]">+</button>
-                      </div>
-                      <span className="text-[9px] font-mono text-[#4ade80]">{targetDisplay(h)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-            <p className="text-[11px] leading-4 text-[#666]">Atur per-minggu: mis. Minggu 2 Hari 3 = 9j hanya mempengaruhi Minggu 2, minggu lain tetap 8j.</p>
-          </div>
-        )}
+        <p className="mt-2 text-[11px] text-[#666]">Upload file di bawah → <b className="text-[#888]">Pratinjau</b> → atur jam <b className="text-[#888]">per line</b> (ada yang 8j, ada yang 9j).</p>
       </Card>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -836,6 +741,82 @@ function AkumulasiPage() {
           </label>
         ))}
       </div>
+
+      {preview && (
+        <>
+          <Card className="overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#1f1f1f] bg-[#0a0a0a] flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-white">Preview Spreadsheet</p>
+                <p className="text-xs text-[#888]">{preview.lineList.length} line terdeteksi — mirip akumulasi.xlsx (Output per tanggal)</p>
+              </div>
+              <span className="hidden md:inline-flex text-[10px] font-mono px-2 py-1 rounded border border-[#262626] bg-black text-[#666]">{preview.sewParsed.lines.size} Sew · {preview.assParsed.lines.size} Ass</span>
+            </div>
+            <div className="overflow-auto max-h-[300px] border-b border-[#1f1f1f]">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-[#111] border-b border-[#1f1f1f]">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-mono text-[10px] tracking-widest text-[#888]">LINE</th>
+                    <th className="text-left px-3 py-2 font-mono text-[10px] tracking-widest text-[#888] hidden md:table-cell">KETERANGAN</th>
+                    <th className="text-right px-3 py-2 font-mono text-[10px] tracking-widest text-[#888]">TOTAL OUTPUT</th>
+                    <th className="text-center px-3 py-2 font-mono text-[10px] tracking-widest text-[#888]">JAM</th>
+                    <th className="text-right px-3 py-2 font-mono text-[10px] tracking-widest text-[#888]">TARGET</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1f1f1f]">
+                  {preview.lineList.map((code) => {
+                    const rec = preview.sewParsed.lines.get(code) || preview.assParsed.lines.get(code);
+                    const total = rec ? rec.days.reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0) : 0;
+                    const h = lineHours[code] ?? 8;
+                    return (
+                      <tr key={code} className="hover:bg-[#111]/50">
+                        <td className="px-3 py-2 font-mono font-medium text-white">{code}</td>
+                        <td className="px-3 py-2 font-mono text-[#888] hidden md:table-cell max-w-[160px] truncate">{rec?.label || '-'}</td>
+                        <td className="px-3 py-2 font-mono text-right text-[#ededed]">{total}</td>
+                        <td className="px-3 py-2 font-mono text-center text-[#4ade80]">{h}j</td>
+                        <td className="px-3 py-2 font-mono text-right text-[#4ade80]">{calcTarget(h)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-3 py-2 bg-[#0a0a0a] text-[11px] text-[#666]">Target dihitung {calcMode === 'regular' ? 'Jam×84' : 'lembur 96'} — ubah per line di bawah, preview Target update langsung.</div>
+          </Card>
+
+          <Card className="p-4">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div>
+                <p className="text-sm font-medium text-white">Atur Jam per Line</p>
+                <p className="text-xs text-[#888]">Ada line 8j, ada yang 9j — atur di sini. Default 8j.</p>
+              </div>
+              <div className="flex gap-1">
+                <button type="button" onClick={() => setLineHours(Object.fromEntries(preview.lineList.map(k => [k, 8])))} className="px-2.5 py-1 rounded border border-[#262626] bg-black text-[11px] text-[#888] hover:border-white hover:text-white">Semua 8j</button>
+                <button type="button" onClick={() => setLineHours(Object.fromEntries(preview.lineList.map(k => [k, 9])))} className="px-2.5 py-1 rounded border border-[#262626] bg-black text-[11px] text-[#888] hover:border-white hover:text-white">Semua 9j</button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              {preview.lineList.map((code) => {
+                const h = lineHours[code] ?? 8;
+                const is9 = h === 9;
+                return (
+                  <div key={code} className={`flex items-center justify-between rounded-lg border p-2.5 transition-colors ${is9 ? 'border-[#4ade80]/30 bg-[#0a1a0a]' : 'border-[#1f1f1f] bg-black'}`}>
+                    <div className="min-w-0">
+                      <p className="font-mono text-xs font-medium text-white">{code}</p>
+                      <p className="text-[11px] font-mono text-[#666]">{h}j → <span className="text-[#4ade80]">{calcTarget(h)}</span> {is9 && '• 9j'}</p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button type="button" onClick={() => setLineHours(prev => ({ ...prev, [code]: Math.max(1, (prev[code] ?? 8) - 0.5) }))} className="h-7 w-7 flex items-center justify-center rounded border border-[#262626] bg-[#0a0a0a] text-[#888] hover:border-white hover:text-white">-</button>
+                      <span className="w-10 text-center font-mono text-sm text-white">{h}j</span>
+                      <button type="button" onClick={() => setLineHours(prev => ({ ...prev, [code]: Math.min(12, (prev[code] ?? 8) + 0.5) }))} className="h-7 w-7 flex items-center justify-center rounded border border-[#262626] bg-[#0a0a0a] text-[#888] hover:border-white hover:text-white">+</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </>
+      )}
 
       {message && (
         <div className={`flex gap-2.5 rounded-md border px-3 py-2.5 text-sm ${status==='success'?'border-[#1a3a1a] bg-[#0a1a0a] text-[#4ade80]':status==='error'?'border-[#3a1a1a] bg-[#1a0a0a] text-[#f87171]':'border-[#262626] bg-[#111] text-[#ededed]'}`}>
@@ -866,8 +847,15 @@ function AkumulasiPage() {
       {summary && <div className="grid grid-cols-2 gap-3"><div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-3 text-center"><p className="font-mono text-[10px] uppercase tracking-widest text-[#888]">Sel Terisi</p><p className="mt-1 text-sm font-semibold tracking-[-0.02em] text-white">{summary.cells}</p></div><div className="rounded-lg border border-[#1f1f1f] bg-[#0a0a0a] px-3 py-3 text-center"><p className="font-mono text-[10px] uppercase tracking-widest text-[#888]">Blok Minggu</p><p className="mt-1 text-sm font-semibold tracking-[-0.02em] text-white">{summary.weeks}</p></div></div>}
 
       <div className="flex items-center justify-end gap-2">
-        {ready && <VercelButton variant="secondary" onClick={()=>{setFiles({ass:null,stt:null}); setStatus('idle'); setMessage(''); setErrorHelp(null); setShowTip(false); setSummary(null);}}>Reset</VercelButton>}
-        <VercelButton variant="primary" disabled={!ready || status==='processing'} onClick={handleProcess}>{status==='processing' ? 'Memproses…' : 'Isi Akumulasi & Unduh'}</VercelButton>
+        {ready && <VercelButton variant="secondary" onClick={()=>{setFiles({ass:null,stt:null}); setPreview(null); setLineHours({}); setStatus('idle'); setMessage(''); setErrorHelp(null); setShowTip(false); setSummary(null);}}>Reset</VercelButton>}
+        {!preview ? (
+          <VercelButton variant="primary" disabled={!ready || status==='processing'} onClick={handlePreview}>{status==='processing' ? 'Memproses…' : 'Pratinjau & Atur Jam'}</VercelButton>
+        ) : (
+          <>
+            <VercelButton variant="secondary" onClick={()=>{setPreview(null); setStatus('idle'); setMessage('');}}>Tutup Preview</VercelButton>
+            <VercelButton variant="primary" disabled={status==='processing'} onClick={handleDownload}>{status==='processing' ? 'Memproses…' : `Isi Akumulasi & Unduh (${Object.keys(lineHours).length} line)`}</VercelButton>
+          </>
+        )}
       </div>
 
       {/* Mode Info Modal */}
