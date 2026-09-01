@@ -616,7 +616,9 @@ function AkumulasiPage() {
   const [showTip, setShowTip] = useState(false);
   const [summary, setSummary] = useState(null);
   // Jam kerja per hari (default: 8 jam = 672 target)
-  const [workHours, setWorkHours] = useState([8, 8, 8, 8, 8, 8]); // 6 hari per minggu
+  const [workHours, setWorkHours] = useState([8, 8, 8, 8, 8, 8]); // 6 hari per minggu — mode global
+  const [weeklyHours, setWeeklyHours] = useState(null); // null = pakai global, atau [[6],[6],...] 5 minggu
+  const [hoursMode, setHoursMode] = useState('global'); // 'global' | 'weekly'
   const [calcMode, setCalcMode] = useState('regular'); // 'regular' | 'overtime'
   const [showModeInfo, setShowModeInfo] = useState(false);
   const REGULAR_RATE = 84;  // 672/8 = 84 pcs/hour
@@ -626,6 +628,12 @@ function AkumulasiPage() {
       return Math.round(Math.min(hours, 8) * REGULAR_RATE + Math.max(hours - 8, 0) * OVERTIME_RATE);
     }
     return Math.round(hours * REGULAR_RATE);
+  };
+  const ensureWeekly = () => {
+    if (weeklyHours) return weeklyHours;
+    const base = Array.from({ length: 5 }, () => [...workHours]);
+    setWeeklyHours(base);
+    return base;
   };
 
   const pick = (key) => async (e) => {
@@ -674,7 +682,8 @@ function AkumulasiPage() {
       else if(k1!=='sew'||k2!=='ass'){ const err=new Error('Jenis file tidak sesuai.'); err.help={title:'Butuh 1 Sewing + 1 Assembling', steps:['Sewing: S01–S18 / T02/T03 / IP','Assembling: A01–A18','Tukar posisi upload atau cek di Excel']}; throw err; }
       setMessage('Mengunduh template…');
       const tplRes=await fetch('/akumulasi-template.xlsx'); if(!tplRes.ok) throw new Error('Template tidak tersedia.');
-      const out=fillAkumulasi(new Uint8Array(await tplRes.arrayBuffer()), sewParsed, assParsed, workHours, calcMode);
+      const hoursToSend = hoursMode === 'weekly' && weeklyHours ? weeklyHours : workHours;
+      const out=fillAkumulasi(new Uint8Array(await tplRes.arrayBuffer()), sewParsed, assParsed, hoursToSend, calcMode);
       setSummary({ cells: out.filledCells, weeks: out.weeksFound });
       const blob=new Blob([out.zip],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
       const url=window.URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='akumulasi.xlsx'; document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
@@ -730,28 +739,91 @@ function AkumulasiPage() {
           </p>
         </div>
 
-        {/* Per Day Input */}
-        <div className="grid grid-cols-3 gap-2 md:grid-cols-6">
-          {workHours.map((h, i) => (
-            <div key={i} className="flex flex-col items-center gap-1">
-              <span className="text-[10px] font-mono text-[#666] uppercase">Hari {i + 1}</span>
-              <div className="flex items-center gap-1">
-                <button type="button" onClick={() => {
-                  const newHours = [...workHours];
-                  newHours[i] = Math.max(1, h - 0.5);
-                  setWorkHours(newHours);
-                }} className="h-6 w-6 flex items-center justify-center rounded border border-[#262626] bg-black text-[#888] hover:border-white hover:text-white text-xs">-</button>
-                <span className="w-8 text-center font-mono text-sm text-white">{h}j</span>
-                <button type="button" onClick={() => {
-                  const newHours = [...workHours];
-                  newHours[i] = Math.min(12, h + 0.5);
-                  setWorkHours(newHours);
-                }} className="h-6 w-6 flex items-center justify-center rounded border border-[#262626] bg-black text-[#888] hover:border-white hover:text-white text-xs">+</button>
-              </div>
-              <span className="text-[10px] font-mono text-[#4ade80]">{targetDisplay(h)}</span>
-            </div>
-          ))}
+        {/* Mode Global vs Per-Minggu */}
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex rounded-md border border-[#262626] bg-[#0a0a0a] p-0.5">
+            <button type="button" onClick={() => setHoursMode('global')}
+              className={`px-3 py-1 rounded text-xs font-medium transition-all ${hoursMode === 'global' ? 'bg-white text-black' : 'text-[#888] hover:text-white'}`}>Global (6 Hari)</button>
+            <button type="button" onClick={() => { ensureWeekly(); setHoursMode('weekly'); }}
+              className={`px-3 py-1 rounded text-xs font-medium transition-all ${hoursMode === 'weekly' ? 'bg-white text-black' : 'text-[#888] hover:text-white'}`}>Per-Minggu</button>
+          </div>
+          {hoursMode === 'global' ? (
+            <span className="text-[10px] font-mono text-[#666]">Berlaku semua minggu</span>
+          ) : (
+            <button type="button" onClick={() => setWeeklyHours(Array.from({ length: 5 }, () => [...workHours]))}
+              className="text-[10px] font-mono text-[#888] hover:text-white underline decoration-dotted">Salin Global ke semua minggu</button>
+          )}
         </div>
+
+        {hoursMode === 'global' ? (
+          <div className="grid grid-cols-3 gap-2 md:grid-cols-6">
+            {workHours.map((h, i) => (
+              <div key={i} className="flex flex-col items-center gap-1">
+                <span className="text-[10px] font-mono text-[#666] uppercase">Hari {i + 1}</span>
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={() => {
+                    const newHours = [...workHours];
+                    newHours[i] = Math.max(1, h - 0.5);
+                    setWorkHours(newHours);
+                    if (weeklyHours) setWeeklyHours(null);
+                  }} className="h-6 w-6 flex items-center justify-center rounded border border-[#262626] bg-black text-[#888] hover:border-white hover:text-white text-xs">-</button>
+                  <span className="w-8 text-center font-mono text-sm text-white">{h}j</span>
+                  <button type="button" onClick={() => {
+                    const newHours = [...workHours];
+                    newHours[i] = Math.min(12, h + 0.5);
+                    setWorkHours(newHours);
+                    if (weeklyHours) setWeeklyHours(null);
+                  }} className="h-6 w-6 flex items-center justify-center rounded border border-[#262626] bg-black text-[#888] hover:border-white hover:text-white text-xs">+</button>
+                </div>
+                <span className="text-[10px] font-mono text-[#4ade80]">{targetDisplay(h)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {(weeklyHours || Array.from({ length: 5 }, () => [...workHours])).map((week, wi) => (
+              <div key={wi} className="rounded-lg border border-[#262626] bg-black p-2.5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-white">Minggu {wi + 1}</span>
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => {
+                      const base = weeklyHours ? [...weeklyHours] : Array.from({ length: 5 }, () => [...workHours]);
+                      base[wi] = [...workHours];
+                      setWeeklyHours(base);
+                    }} className="text-[10px] px-2 py-1 rounded border border-[#262626] text-[#666] hover:text-white hover:border-white">Ikut Global</button>
+                    <button type="button" onClick={() => {
+                      const base = weeklyHours ? [...weeklyHours] : Array.from({ length: 5 }, () => [...workHours]);
+                      base[wi] = [8,8,8,8,8,8];
+                      setWeeklyHours(base);
+                    }} className="text-[10px] px-2 py-1 rounded border border-[#262626] text-[#666] hover:text-white hover:border-white">Reset 8j</button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 md:grid-cols-6">
+                  {week.map((h, di) => (
+                    <div key={di} className="flex flex-col items-center gap-1 rounded border border-[#1f1f1f] bg-[#0a0a0a] py-2">
+                      <span className="text-[9px] font-mono text-[#666]">H{di + 1}</span>
+                      <div className="flex items-center gap-1">
+                        <button type="button" onClick={() => {
+                          const base = weeklyHours ? weeklyHours.map(r => [...r]) : Array.from({ length: 5 }, () => [...workHours]);
+                          base[wi][di] = Math.max(1, h - 0.5);
+                          setWeeklyHours(base);
+                        }} className="h-5 w-5 flex items-center justify-center rounded border border-[#262626] bg-black text-[#888] hover:border-white hover:text-white text-[10px]">-</button>
+                        <span className="w-7 text-center font-mono text-xs text-white">{h}j</span>
+                        <button type="button" onClick={() => {
+                          const base = weeklyHours ? weeklyHours.map(r => [...r]) : Array.from({ length: 5 }, () => [...workHours]);
+                          base[wi][di] = Math.min(12, h + 0.5);
+                          setWeeklyHours(base);
+                        }} className="h-5 w-5 flex items-center justify-center rounded border border-[#262626] bg-black text-[#888] hover:border-white hover:text-white text-[10px]">+</button>
+                      </div>
+                      <span className="text-[9px] font-mono text-[#4ade80]">{targetDisplay(h)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <p className="text-[11px] leading-4 text-[#666]">Atur per-minggu: mis. Minggu 2 Hari 3 = 9j hanya mempengaruhi Minggu 2, minggu lain tetap 8j.</p>
+          </div>
+        )}
       </Card>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
