@@ -678,7 +678,7 @@ function AkumulasiPage() {
       const { sewParsed, assParsed } = await parseFiles();
       const allCodes = [...sewParsed.lines.keys(), ...assParsed.lines.keys()].sort();
       const init = {};
-      for (const code of allCodes) init[code] = 8;
+      for (const code of allCodes) init[code] = [8,8,8,8,8,8];
       setLineHours(init);
       setPreview({ sewParsed, assParsed, lineList: allCodes });
       setStatus('idle'); setMessage(`Preview siap — ${allCodes.length} line terdeteksi. Atur jam per line di bawah, lalu Unduh.`);
@@ -744,75 +744,139 @@ function AkumulasiPage() {
 
       {preview && (
         <>
+          {/* ── Preview Spreadsheet — terstruktur seperti akumulasi.xlsx ── */}
           <Card className="overflow-hidden">
-            <div className="px-4 py-3 border-b border-[#1f1f1f] bg-[#0a0a0a] flex items-center justify-between">
+            <div className="px-4 py-3 border-b border-[#1f1f1f] bg-[#0a0a0a] flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium text-white">Preview Spreadsheet</p>
-                <p className="text-xs text-[#888]">{preview.lineList.length} line terdeteksi — mirip akumulasi.xlsx (Output per tanggal)</p>
+                <p className="text-sm font-medium tracking-[-0.01em] text-white">Preview Spreadsheet</p>
+                <p className="text-xs text-[#888]">{preview.lineList.length} line terdeteksi — cek Output, lalu atur jam per line × hari di bawah</p>
               </div>
-              <span className="hidden md:inline-flex text-[10px] font-mono px-2 py-1 rounded border border-[#262626] bg-black text-[#666]">{preview.sewParsed.lines.size} Sew · {preview.assParsed.lines.size} Ass</span>
+              <div className="hidden md:flex items-center gap-1.5">
+                <span className="text-[10px] font-mono px-2 py-1 rounded border border-[#262626] bg-black text-[#666]">{preview.sewParsed.lines.size} Sew</span>
+                <span className="text-[10px] font-mono px-2 py-1 rounded border border-[#262626] bg-black text-[#666]">{preview.assParsed.lines.size} Ass</span>
+              </div>
             </div>
-            <div className="overflow-auto max-h-[300px] border-b border-[#1f1f1f]">
+            <div className="overflow-auto max-h-[320px]">
               <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-[#111] border-b border-[#1f1f1f]">
+                <thead className="sticky top-0 z-10 bg-[#111] border-b border-[#1f1f1f]">
                   <tr>
-                    <th className="text-left px-3 py-2 font-mono text-[10px] tracking-widest text-[#888]">LINE</th>
-                    <th className="text-left px-3 py-2 font-mono text-[10px] tracking-widest text-[#888] hidden md:table-cell">KETERANGAN</th>
-                    <th className="text-right px-3 py-2 font-mono text-[10px] tracking-widest text-[#888]">TOTAL OUTPUT</th>
-                    <th className="text-center px-3 py-2 font-mono text-[10px] tracking-widest text-[#888]">JAM</th>
-                    <th className="text-right px-3 py-2 font-mono text-[10px] tracking-widest text-[#888]">TARGET</th>
+                    <th className="sticky left-0 z-20 bg-[#111] text-left px-3 py-2.5 font-mono text-[10px] tracking-widest text-[#888] border-r border-[#1f1f1f]">LINE</th>
+                    <th className="hidden md:table-cell text-left px-3 py-2.5 font-mono text-[10px] tracking-widest text-[#555]">KETERANGAN</th>
+                    <th className="text-right px-3 py-2.5 font-mono text-[10px] tracking-widest text-[#888]">TOTAL OUT</th>
+                    <th className="text-center px-3 py-2.5 font-mono text-[10px] tracking-widest text-[#888]">RINGKAS JAM</th>
+                    <th className="text-right px-3 py-2.5 font-mono text-[10px] tracking-widest text-[#4ade80]">TOT TARGET</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#1f1f1f]">
-                  {preview.lineList.map((code) => {
-                    const rec = preview.sewParsed.lines.get(code) || preview.assParsed.lines.get(code);
-                    const total = rec ? rec.days.reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0) : 0;
-                    const h = lineHours[code] ?? 8;
+                  {(() => {
+                    const sewCodes = [...preview.sewParsed.lines.keys()].sort();
+                    const assCodes = [...preview.assParsed.lines.keys()].sort();
+                    const sections = [
+                      { label: 'SEWING', codes: sewCodes, map: preview.sewParsed.lines },
+                      { label: 'ASSEMBLING', codes: assCodes, map: preview.assParsed.lines },
+                    ];
+                    return sections.flatMap(sec => [
+                      <tr key={`hdr-${sec.label}`} className="bg-[#0f0f0f]"><td colSpan={5} className="px-3 py-1.5 font-mono text-[10px] tracking-[0.14em] text-[#666] border-y border-[#1f1f1f]">{sec.label} — {sec.codes.length} line</td></tr>,
+                      ...sec.codes.map(code => {
+                        const rec = sec.map.get(code);
+                        const total = rec ? rec.days.reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0) : 0;
+                        const arr = lineHours[code] || [8,8,8,8,8,8];
+                        const isArr = Array.isArray(arr);
+                        const jamSummary = isArr ? arr.map((h,i) => `H${i+1}:${h}j`).join(' · ') : `${arr}j`;
+                        const totTarget = isArr ? arr.reduce((s,h)=> s + calcTarget(h),0) : calcTarget(arr)*6;
+                        const has9 = isArr ? arr.some(h=>h===9) : arr===9;
+                        return (
+                          <tr key={code} className={`hover:bg-[#111]/70 ${has9 ? 'bg-[#0a1a0a]/40' : ''}`}>
+                            <td className="sticky left-0 bg-[#0a0a0a] px-3 py-2 font-mono text-xs font-medium text-white border-r border-[#1f1f1f]">{code}</td>
+                            <td className="hidden md:table-cell px-3 py-2 font-mono text-xs text-[#666] max-w-[160px] truncate">{rec?.label || '-'}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-right text-[#ededed]">{total.toLocaleString('id-ID')}</td>
+                            <td className="px-3 py-2 font-mono text-[11px] text-center text-[#888] max-w-[220px] truncate" title={jamSummary}>{jamSummary}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-right font-medium text-[#4ade80]">{totTarget.toLocaleString('id-ID')}</td>
+                          </tr>
+                        );
+                      })
+                    ]);
+                  })()}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-3 py-2 bg-[#0a0a0a] border-t border-[#1f1f1f] flex items-center justify-between gap-3">
+              <span className="text-[11px] font-mono text-[#666]">Pratinjau update live saat jam per line diubah di bawah.</span>
+              <span className="hidden md:inline text-[10px] font-mono px-2 py-1 rounded bg-[#111] border border-[#1f1f1f] text-[#555]">{calcMode === 'regular' ? 'Jam×84' : 'lembur 96'}</span>
+            </div>
+          </Card>
+
+          {/* ── Atur Jam per Line — matrix per-Hari (H1..H6) ── */}
+          <Card className="overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#1f1f1f] bg-[#0a0a0a]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium tracking-[-0.01em] text-white">Atur Jam per Line × Hari</p>
+                  <p className="text-xs text-[#888] mt-0.5">S01 bisa 8j hari ini, 9j besok — atur per kotak H1..H6. Berlaku untuk semua minggu.</p>
+                </div>
+                <div className="hidden md:flex gap-1 shrink-0">
+                  <button type="button" onClick={() => setLineHours(Object.fromEntries(preview.lineList.map(k => [k, [8,8,8,8,8,8]])))} className="px-2.5 py-1.5 rounded border border-[#262626] bg-black text-[11px] font-medium text-[#888] hover:border-white hover:text-white">Semua 8j</button>
+                  <button type="button" onClick={() => setLineHours(Object.fromEntries(preview.lineList.map(k => [k, [9,9,9,9,9,9]])))} className="px-2.5 py-1.5 rounded border border-[#262626] bg-black text-[11px] font-medium text-[#888] hover:border-white hover:text-white">Semua 9j</button>
+                </div>
+              </div>
+              <div className="flex md:hidden gap-1 mt-2">
+                <button type="button" onClick={() => setLineHours(Object.fromEntries(preview.lineList.map(k => [k, [8,8,8,8,8,8]])))} className="flex-1 py-1.5 rounded border border-[#262626] bg-black text-xs text-[#888]">Semua 8j</button>
+                <button type="button" onClick={() => setLineHours(Object.fromEntries(preview.lineList.map(k => [k, [9,9,9,9,9,9]])))} className="flex-1 py-1.5 rounded border border-[#262626] bg-black text-xs text-[#888]">Semua 9j</button>
+              </div>
+            </div>
+
+            <div className="overflow-auto max-h-[420px]">
+              <table className="w-full text-xs border-collapse">
+                <thead className="sticky top-0 z-10 bg-[#111] border-b border-[#1f1f1f]">
+                  <tr>
+                    <th className="sticky left-0 z-20 bg-[#111] text-left px-3 py-2.5 font-mono text-[10px] tracking-widest text-[#888] border-r border-[#1f1f1f] min-w-[84px]">LINE</th>
+                    {[1,2,3,4,5,6].map(n => <th key={n} className="text-center px-1.5 py-2.5 font-mono text-[10px] tracking-widest text-[#666] min-w-[92px]">HARI {n}</th>)}
+                    <th className="text-center px-2 py-2.5 font-mono text-[10px] tracking-widest text-[#555]">AKSI</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1f1f1f]">
+                  {preview.lineList.map(code => {
+                    const arr = lineHours[code] || [8,8,8,8,8,8];
+                    const isArr = Array.isArray(arr);
+                    const vals = isArr ? arr : Array(6).fill(arr);
                     return (
-                      <tr key={code} className="hover:bg-[#111]/50">
-                        <td className="px-3 py-2 font-mono font-medium text-white">{code}</td>
-                        <td className="px-3 py-2 font-mono text-[#888] hidden md:table-cell max-w-[160px] truncate">{rec?.label || '-'}</td>
-                        <td className="px-3 py-2 font-mono text-right text-[#ededed]">{total}</td>
-                        <td className="px-3 py-2 font-mono text-center text-[#4ade80]">{h}j</td>
-                        <td className="px-3 py-2 font-mono text-right text-[#4ade80]">{calcTarget(h)}</td>
+                      <tr key={code} className="hover:bg-[#111]/40">
+                        <td className="sticky left-0 bg-[#0a0a0a] px-3 py-2 font-mono text-xs font-semibold text-white border-r border-[#1f1f1f]">
+                          <span className="inline-flex items-center gap-1.5">{code}<span className="hidden md:inline text-[10px] font-normal text-[#555] truncate max-w-[90px]">{(preview.sewParsed.lines.get(code)||preview.assParsed.lines.get(code))?.label?.slice(0,12)||''}</span></span>
+                        </td>
+                        {vals.map((h, di) => (
+                          <td key={di} className="px-1 py-1.5 text-center">
+                            <div className={`inline-flex flex-col items-center gap-1 rounded-md border px-1.5 py-1 ${h===9 ? 'border-[#4ade80]/30 bg-[#0a1a0a]' : h>8 ? 'border-amber-500/20 bg-[#1a1300]' : 'border-[#1f1f1f] bg-[#0a0a0a]'}`}>
+                              <div className="flex items-center gap-1">
+                                <button type="button" onClick={() => setLineHours(prev => {
+                                  const cur = prev[code]; const a = Array.isArray(cur) ? [...cur] : Array(6).fill(cur ?? 8);
+                                  a[di] = Math.max(1, a[di] - 0.5); return { ...prev, [code]: a };
+                                })} className="h-5 w-5 flex items-center justify-center rounded border border-[#262626] bg-black text-[10px] text-[#888] hover:border-white hover:text-white">-</button>
+                                <span className={`w-9 text-center font-mono text-xs font-medium ${h===9 ? 'text-[#4ade80]' : 'text-white'}`}>{h}j</span>
+                                <button type="button" onClick={() => setLineHours(prev => {
+                                  const cur = prev[code]; const a = Array.isArray(cur) ? [...cur] : Array(6).fill(cur ?? 8);
+                                  a[di] = Math.min(12, a[di] + 0.5); return { ...prev, [code]: a };
+                                })} className="h-5 w-5 flex items-center justify-center rounded border border-[#262626] bg-black text-[10px] text-[#888] hover:border-white hover:text-white">+</button>
+                              </div>
+                              <span className="font-mono text-[10px] leading-none text-[#4ade80]">{calcTarget(h)}</span>
+                            </div>
+                          </td>
+                        ))}
+                        <td className="px-1.5 py-1.5 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <button type="button" title="Set line ini semua 8j" onClick={() => setLineHours(prev => ({ ...prev, [code]: [8,8,8,8,8,8] }))} className="px-1.5 py-1 rounded border border-[#1f1f1f] bg-black font-mono text-[10px] text-[#666] hover:text-white hover:border-white">8j</button>
+                            <button type="button" title="Set line ini semua 9j" onClick={() => setLineHours(prev => ({ ...prev, [code]: [9,9,9,9,9,9] }))} className="px-1.5 py-1 rounded border border-[#1f1f1f] bg-black font-mono text-[10px] text-[#666] hover:text-white hover:border-white">9j</button>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
-            <div className="px-3 py-2 bg-[#0a0a0a] text-[11px] text-[#666]">Target dihitung {calcMode === 'regular' ? 'Jam×84' : 'lembur 96'} — ubah per line di bawah, preview Target update langsung.</div>
-          </Card>
-
-          <Card className="p-4">
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <div>
-                <p className="text-sm font-medium text-white">Atur Jam per Line</p>
-                <p className="text-xs text-[#888]">Ada line 8j, ada yang 9j — atur di sini. Default 8j.</p>
-              </div>
-              <div className="flex gap-1">
-                <button type="button" onClick={() => setLineHours(Object.fromEntries(preview.lineList.map(k => [k, 8])))} className="px-2.5 py-1 rounded border border-[#262626] bg-black text-[11px] text-[#888] hover:border-white hover:text-white">Semua 8j</button>
-                <button type="button" onClick={() => setLineHours(Object.fromEntries(preview.lineList.map(k => [k, 9])))} className="px-2.5 py-1 rounded border border-[#262626] bg-black text-[11px] text-[#888] hover:border-white hover:text-white">Semua 9j</button>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              {preview.lineList.map((code) => {
-                const h = lineHours[code] ?? 8;
-                const is9 = h === 9;
-                return (
-                  <div key={code} className={`flex items-center justify-between rounded-lg border p-2.5 transition-colors ${is9 ? 'border-[#4ade80]/30 bg-[#0a1a0a]' : 'border-[#1f1f1f] bg-black'}`}>
-                    <div className="min-w-0">
-                      <p className="font-mono text-xs font-medium text-white">{code}</p>
-                      <p className="text-[11px] font-mono text-[#666]">{h}j → <span className="text-[#4ade80]">{calcTarget(h)}</span> {is9 && '• 9j'}</p>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button type="button" onClick={() => setLineHours(prev => ({ ...prev, [code]: Math.max(1, (prev[code] ?? 8) - 0.5) }))} className="h-7 w-7 flex items-center justify-center rounded border border-[#262626] bg-[#0a0a0a] text-[#888] hover:border-white hover:text-white">-</button>
-                      <span className="w-10 text-center font-mono text-sm text-white">{h}j</span>
-                      <button type="button" onClick={() => setLineHours(prev => ({ ...prev, [code]: Math.min(12, (prev[code] ?? 8) + 0.5) }))} className="h-7 w-7 flex items-center justify-center rounded border border-[#262626] bg-[#0a0a0a] text-[#888] hover:border-white hover:text-white">+</button>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="px-3 py-2.5 bg-[#0a0a0a] border-t border-[#1f1f1f] flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[11px] leading-4 text-[#666]">Contoh: <b className="text-[#888]">S01 H1 8j, H2 9j</b> → S01 besok otomatis 9j, lusa kembali 8j. Garis hijau = 9j.</span>
+              <span className="text-[10px] font-mono px-2 py-1 rounded bg-[#111] border border-[#1f1f1f] text-[#555]">{preview.lineList.length} line × 6 hari</span>
             </div>
           </Card>
         </>
