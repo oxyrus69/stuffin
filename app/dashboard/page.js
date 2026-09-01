@@ -1117,7 +1117,6 @@ export default function Dashboard() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-sm font-semibold tracking-[-0.02em] text-white">{active?.title}</h1>
-                <span className="hidden rounded-full border border-[#232323] bg-[#0a0a0a] px-2 py-0.5 font-mono text-[10px] font-medium tracking-wide text-[#888] md:inline-flex">{activePage.toUpperCase()}</span>
               </div>
             </div>
           </div>
