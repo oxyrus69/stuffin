@@ -19,11 +19,6 @@ export async function GET(request) {
   try {
     const { group, page, search, from, to } = Object.fromEntries(new URL(request.url).searchParams);
 
-    let query = sql`
-      SELECT id, created_at, archive_group, page, file_name, file_size, error_message, error_stack, metadata
-      FROM error_archives
-    `;
-
     const conditions = [];
     if (group) conditions.push(sql`archive_group = ${group}`);
     if (page) conditions.push(sql`page = ${page}`);
@@ -31,20 +26,52 @@ export async function GET(request) {
       const pat = `%${search}%`;
       conditions.push(sql`(file_name ILIKE ${pat} OR error_message ILIKE ${pat} OR error_stack ILIKE ${pat})`);
     }
-    if (from) conditions.push(sql`created_at >= ${from}`);
-    if (to) conditions.push(sql`created_at <= ${to}`);
+    if (from) conditions.push(sql`created_at >= ${from}::timestamptz`);
+    if (to) conditions.push(sql`created_at <= ${to}::timestamptz`);
 
-    if (conditions.length > 0) {
-      const whereClause = conditions.reduce((acc, cond, i) => {
-        if (i === 0) return sql`WHERE ${cond}`;
-        return sql`${acc} AND ${cond}`;
-      }, conditions[0]);
-      query = sql`SELECT id, created_at, archive_group, page, file_name, file_size, error_message, error_stack, metadata FROM error_archives ${whereClause}`;
+    let rows;
+    if (conditions.length === 0) {
+      rows = await sql`
+        SELECT id, created_at, archive_group, page, file_name, file_size, error_message, error_stack, metadata
+        FROM error_archives
+        ORDER BY created_at DESC LIMIT 200
+      `;
+    } else if (conditions.length === 1) {
+      rows = await sql`
+        SELECT id, created_at, archive_group, page, file_name, file_size, error_message, error_stack, metadata
+        FROM error_archives
+        WHERE ${conditions[0]}
+        ORDER BY created_at DESC LIMIT 200
+      `;
+    } else if (conditions.length === 2) {
+      rows = await sql`
+        SELECT id, created_at, archive_group, page, file_name, file_size, error_message, error_stack, metadata
+        FROM error_archives
+        WHERE ${conditions[0]} AND ${conditions[1]}
+        ORDER BY created_at DESC LIMIT 200
+      `;
+    } else if (conditions.length === 3) {
+      rows = await sql`
+        SELECT id, created_at, archive_group, page, file_name, file_size, error_message, error_stack, metadata
+        FROM error_archives
+        WHERE ${conditions[0]} AND ${conditions[1]} AND ${conditions[2]}
+        ORDER BY created_at DESC LIMIT 200
+      `;
+    } else if (conditions.length === 4) {
+      rows = await sql`
+        SELECT id, created_at, archive_group, page, file_name, file_size, error_message, error_stack, metadata
+        FROM error_archives
+        WHERE ${conditions[0]} AND ${conditions[1]} AND ${conditions[2]} AND ${conditions[3]}
+        ORDER BY created_at DESC LIMIT 200
+      `;
+    } else {
+      rows = await sql`
+        SELECT id, created_at, archive_group, page, file_name, file_size, error_message, error_stack, metadata
+        FROM error_archives
+        WHERE ${conditions[0]} AND ${conditions[1]} AND ${conditions[2]} AND ${conditions[3]} AND ${conditions[4]}
+        ORDER BY created_at DESC LIMIT 200
+      `;
     }
-
-    query = sql`${query} ORDER BY created_at DESC LIMIT 200`;
-
-    const rows = await query;
 
     const grouped = {};
     for (const row of rows) {

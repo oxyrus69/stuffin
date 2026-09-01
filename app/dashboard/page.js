@@ -233,7 +233,7 @@ function ProsesPage({ summary, setSummary }) {
       const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
       setStatus('success');
       setMessage(`Selesai — ${n} order terpilih → ${filename}`);
-    } catch (err) { console.error(err); setStatus('error'); setMessage(err.message || 'Gagal memproses pilihan.'); }
+    } catch (err) { console.error(err); archiveOnError([...jitFiles, stuffingFile].filter(Boolean), 'proses', err.message, err.stack); setStatus('error'); setMessage(err.message || 'Gagal memproses pilihan.'); }
   };
 
   const toggleRow = (fileIdx, rowI) => {

@@ -2,6 +2,12 @@
   "functions": {
     "app/api/process-excel/route.js": {
       "maxDuration": 60
+    },
+    "app/api/error-archive/route.js": {
+      "maxDuration": 60
+    },
+    "app/api/dev-archive/reprocess/route.js": {
+      "maxDuration": 60
     }
   },
   "headers": [
