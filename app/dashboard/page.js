@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { processBlc, stageJitFiles, assembleFromSelection } from '../../lib/blcClient';
-import { fillAkumulasi, parseDailyFile, parseWorkbookAny, detectKind, diagnoseFile } from '../../lib/akumulasiClient';
+import { fillAkumulasi, parseDailyFile, parseWorkbookAny, detectKind, diagnoseFile, computeMonthlySummary } from '../../lib/akumulasiClient';
 import { queuePendingArchive, syncPendingArchives, getPendingCount } from '../../lib/offlineQueue';
 
 /* ── Arsip error — simpan file + log ke DB saat terjadi error (offline-aware) ── */
@@ -794,7 +794,8 @@ function AkumulasiPage() {
                         const arr = lineHours[code] || [8,8,8,8,8,8];
                         const isArr = Array.isArray(arr);
                         const jamSummary = isArr ? arr.map((h,i) => `H${i+1}:${h}j`).join(' · ') : `${arr}j`;
-                        const totTarget = isArr ? arr.reduce((s,h)=> s + calcTarget(h),0) : calcTarget(arr)*6;
+                        const weeklySum = isArr ? arr.reduce((s,h)=> s + calcTarget(h),0) : calcTarget(arr)*6;
+                        const totTarget = weeklySum * 4; // estimasi 4 minggu (24 hari kerja) — final presisi di file "REKAP BULANAN"
                         const has9 = isArr ? arr.some(h=>h===9) : arr===9;
                         return (
                           <tr key={code} className={`hover:bg-[#111]/70 ${has9 ? 'bg-[#0a1a0a]/40' : ''}`}>
@@ -816,6 +817,67 @@ function AkumulasiPage() {
               <span className="hidden md:inline text-[10px] font-mono px-2 py-1 rounded bg-[#111] border border-[#1f1f1f] text-[#555]">{calcMode === 'regular' ? 'Jam×84' : 'lembur 96'}</span>
             </div>
           </Card>
+
+          {/* ── Rekap Bulanan — OUTPUT SEWING, INPUT ASB VS TARGET PRODUKSI ── */}
+          {(() => {
+            const rows = computeMonthlySummary(preview.sewParsed, preview.assParsed, lineHours, calcMode, 4);
+            const sewRows = rows.filter(r=>r.kind==='sew');
+            const assRows = rows.filter(r=>r.kind==='ass');
+            const grandOut = rows.reduce((s,r)=>s+r.totalOutput,0);
+            const grandTarget = rows.reduce((s,r)=>s+r.totalTarget,0);
+            const grandSelisih = grandOut - grandTarget;
+            const grandPct = grandTarget ? Math.round(grandOut/grandTarget*100) : 0;
+            const pctColor = (p) => p >= 95 ? 'text-[#4ade80]' : p >= 80 ? 'text-[#ededed]' : 'text-[#f87171]';
+            const selisihColor = (v) => v >= 0 ? 'text-[#4ade80]' : 'text-[#f87171]';
+            const Table = ({ title, data }) => (
+              <div className="overflow-hidden rounded-lg border border-[#1f1f1f] bg-[#0a0a0a]">
+                <div className="px-3 py-2 bg-[#111] border-b border-[#1f1f1f] flex items-center justify-between">
+                  <span className="font-mono text-[10px] tracking-[0.14em] text-[#888]">{title}</span>
+                  <span className="font-mono text-[10px] text-[#555]">{data.length} line</span>
+                </div>
+                <div className="overflow-auto max-h-[360px]">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 z-10 bg-[#111] border-b border-[#1f1f1f]">
+                      <tr>
+                        <th className="text-left px-2.5 py-2 font-mono text-[10px] tracking-widest text-[#888]">LINE</th>
+                        <th className="text-right px-2 py-2 font-mono text-[10px] tracking-widest text-[#888]">TOTAL OUTPUT</th>
+                        <th className="text-right px-2 py-2 font-mono text-[10px] tracking-widest text-[#888]">TOTAL TARGET</th>
+                        <th className="text-right px-2 py-2 font-mono text-[10px] tracking-widest text-[#888]">SELISIH</th>
+                        <th className="text-right px-2 py-2 font-mono text-[10px] tracking-widest text-[#888]">%</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#1f1f1f]">
+                      {data.map(r=>(
+                        <tr key={r.code} className="hover:bg-[#111]/60">
+                          <td className="px-2.5 py-1.5 font-mono text-xs font-medium text-white">{r.code}</td>
+                          <td className="px-2 py-1.5 font-mono text-xs text-right text-[#ededed]">{r.totalOutput.toLocaleString('id-ID')}</td>
+                          <td className="px-2 py-1.5 font-mono text-xs text-right text-[#888]">{r.totalTarget.toLocaleString('id-ID')}</td>
+                          <td className={`px-2 py-1.5 font-mono text-xs text-right font-medium ${selisihColor(r.selisih)}`}>{r.selisih > 0 ? '+' : ''}{r.selisih.toLocaleString('id-ID')}</td>
+                          <td className={`px-2 py-1.5 font-mono text-xs text-right font-bold ${pctColor(r.pct)}`}>{r.pct}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+            return (
+              <Card className="overflow-hidden">
+                <div className="px-4 py-3 border-b border-[#1f1f1f] bg-[#0a0a0a]">
+                  <p className="text-sm font-medium tracking-[-0.01em] text-white">Rekap Bulanan — OUTPUT SEWING, INPUT ASB VS TARGET PRODUKSI</p>
+                  <p className="text-xs text-[#888] mt-0.5">Accumation 8/01-8/31 (estimasi 4 minggu · 24 hari kerja) — nilai final presisi mengikuti blok minggu di template saat Unduh. Sheet baru “REKAP BULANAN” akan dibuat di Excel.</p>
+                </div>
+                <div className="p-3 grid grid-cols-1 lg:grid-cols-2 gap-3 bg-black">
+                  <Table title="SEWING — S / T02 / T03" data={sewRows} />
+                  <Table title="ASSEMBLING — A01-A18" data={assRows} />
+                </div>
+                <div className="px-3 py-2.5 bg-[#0a0a0a] border-t border-[#1f1f1f] flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-mono text-[#888]">Grand Total — <b className="text-white">{grandOut.toLocaleString('id-ID')}</b> / <b className="text-white">{grandTarget.toLocaleString('id-ID')}</b> · Selisih <b className={selisihColor(grandSelisih)}>{grandSelisih.toLocaleString('id-ID')}</b> · <b className={pctColor(grandPct)}>{grandPct}%</b></span>
+                  <span className="text-[10px] font-mono px-2 py-1 rounded bg-[#111] border border-[#1f1f1f] text-[#555]">Selisih = Output − Target · % = Output / Target</span>
+                </div>
+              </Card>
+            );
+          })()}
 
           {/* ── Atur Jam per Line — matrix per-Hari (H1..H6) ── */}
           <Card className="overflow-hidden">
