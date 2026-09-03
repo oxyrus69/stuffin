@@ -1,5 +1,5 @@
 // HOPE Offline Service Worker — cache shell + template for offline processing
-const CACHE = 'hope-v2';
+const CACHE = 'hope-v3';
 const CORE = [
   '/',
   '/dashboard',
@@ -7,7 +7,8 @@ const CORE = [
   '/akumulasi-template.xlsx',
   '/hope.svg',
   '/hopev2.svg',
-  '/manifest.json'
+  '/manifest.json',
+  '/version.json'
 ];
 
 self.addEventListener('install', (e) => {
@@ -24,12 +25,22 @@ self.addEventListener('activate', (e) => {
   self.clients.claim();
 });
 
+self.addEventListener('message', (e) => {
+  if (e.data === 'SKIP_WAITING') self.skipWaiting();
+});
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   const url = new URL(req.url);
 
   // Skip non-GET and API error-archive (let it fail to queue when offline)
   if (req.method !== 'GET') return;
+
+  // version.json: network-only, never cache stale
+  if (url.pathname === '/version.json') {
+    e.respondWith(fetch(req, { cache: 'no-store' }));
+    return;
+  }
 
   // Template & static: cache-first
   if (url.pathname === '/akumulasi-template.xlsx' || url.pathname.endsWith('.svg') || url.pathname === '/manifest.json') {
