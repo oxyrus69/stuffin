@@ -68,6 +68,11 @@ export default function RootLayout({ children }) {
         });
         // cek versi setelah SW siap
         await checkVersion();
+        // cek saat kembali online (ideal: langsung sync setelah offline)
+        window.addEventListener('online', () => {
+          reg.update().catch(()=>{});
+          checkVersion();
+        });
         // cek periodik tiap buka tab / fokus
         document.addEventListener('visibilitychange', () => {
           if (document.visibilityState === 'visible') {
